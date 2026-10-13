@@ -1,0 +1,389 @@
+# Qué busca el bot. Los adaptadores reales se agregan en la Fase 1.
+sources:
+  - example          # datos de prueba; reemplazar por getonboard, remotive, etc.
+
+max_age_days: 14
+include_remote_latam: true
+
+countries: [CR, MX, CO, PA, GT, SV, HN, NI, DO, EC, PE, CL, AR, UY, BR]
+
+keywords:
+  - desarrollador
+  - desarrolladora
+  - programador
+  - developer
+  - software developer
+  - software engineer
+  - software development engineer
+  - ingeniero de software
+  - analista programador
+  - analista-programador
+  - application developer
+  - junior developer
+  - junior software developer
+  - trainee developer
+  - entry level developer
+  - associate software engineer
+  - Desarrollo web y Full Stack
+  - full stack
+  - full-stack developer
+  - full stack developer
+  - desarrollador full stack
+  - desarrollador web
+  - desarrollo web
+  - web developer
+  - web application developer
+  - web engineer
+  - frontend
+  - front-end developer
+  - frontend developer
+  - desarrollador frontend
+  - desarrollador front end
+  - backend
+  - back-end developer
+  - backend developer
+  - desarrollador backend
+  - junior full stack developer
+  - junior frontend developer
+  - junior backend developer
+  - Tecnologías frontend
+  - JavaScript developer
+  - TypeScript developer
+  - React developer
+  - Next.js developer
+  - Angular developer
+  - Vue.js developer
+  - HTML CSS developer
+  - UI developer
+  - web UI engineer
+  - Tecnologías backend
+  - API developer
+  - API engineer
+  - REST API developer
+  - microservices developer
+  - desarrollador de microservicios
+  - Node.js developer
+  - Python developer
+  - Java developer
+  - C# developer
+  - .NET developer
+  - dotnet developer
+  - ASP.NET developer
+  - PHP developer
+  - Laravel developer
+  - Spring Boot developer
+  - Desarrollo móvil
+  - mobile developer
+  - mobile application developer
+  - desarrollador móvil
+  - Android developer
+  - iOS developer
+  - Flutter developer
+  - React Native developer
+  - Kotlin developer
+  - Swift developer
+  - .NET MAUI developer
+  - Soporte técnico y mesa de ayuda
+  - soporte técnico
+  - técnico en informática
+  - técnico de soporte
+  - analista de soporte
+  - analista de soporte técnico
+  - help desk
+  - helpdesk
+  - service desk
+  - IT support
+  - technical support
+  - IT support technician
+  - IT support analyst
+  - desktop support
+  - desktop support technician
+  - computer support specialist
+  - service desk analyst
+  - technical support engineer
+  - application support
+  - application support analyst
+  - soporte de aplicaciones
+  - soporte de sistemas
+  - soporte de TI
+  - soporte informático
+  - IT operations support
+  - field support technician
+  - L1 support
+  - L2 support
+  - junior IT support
+  - Análisis y administración de sistemas
+  - analista de sistemas
+  - analista de informática
+  - analista de sistemas junior
+  - systems analyst
+  - IT analyst
+  - business systems analyst
+  - administrador de sistemas
+  - system administrator
+  - systems administrator
+  - sysadmin
+  - systems engineer
+  - ingeniero de sistemas
+  - IT technician
+  - administrador de servidores
+  - server administrator
+  - Windows administrator
+  - Linux administrator
+  - Linux system administrator
+  - Microsoft 365 administrator
+  - Active Directory
+  - infrastructure analyst
+  - infrastructure engineer
+  - application administrator
+  - middleware administrator
+  - WebLogic administrator
+  - QA y pruebas de software
+  - QA
+  - QA engineer
+  - QA analyst
+  - QA tester
+  - software tester
+  - software testing
+  - quality assurance
+  - analista QA
+  - analista de calidad de software
+  - tester de software
+  - automation tester
+  - test automation engineer
+  - automated testing
+  - manual QA tester
+  - manual tester
+  - Selenium tester
+  - Playwright tester
+  - Cypress tester
+  - junior QA
+  - junior QA analyst
+  - DevOps y computación en la nube
+  - devops
+  - DevOps engineer
+  - junior DevOps engineer
+  - cloud engineer
+  - cloud administrator
+  - cloud support engineer
+  - ingeniero cloud
+  - AWS engineer
+  - Azure engineer
+  - Google Cloud engineer
+  - site reliability engineer
+  - SRE
+  - platform engineer
+  - CI/CD engineer
+  - build and release engineer
+  - infrastructure automation
+  - Docker
+  - Kubernetes
+  - Terraform
+  - cloud operations
+  - cloud operations analyst
+  - systems and cloud administrator
+  - Bases de datos y SQL
+  - SQL
+  - SQL developer
+  - SQL analyst
+  - SQL Server
+  - SQL Server developer
+  - database developer
+  - database administrator
+  - DBA
+  - administrador de bases de datos
+  - analista de bases de datos
+  - database analyst
+  - PostgreSQL
+  - MySQL
+  - Oracle Database
+  - Oracle DBA
+  - MongoDB
+  - database support
+  - database engineer
+  - PL/SQL developer
+  - T-SQL developer
+  - junior DBA
+  - Análisis de datos y Business Intelligence
+  - data analyst
+  - analista de datos
+  - junior data analyst
+  - data engineer
+  - ingeniero de datos
+  - business intelligence analyst
+  - BI analyst
+  - BI developer
+  - desarrollador BI
+  - reporting analyst
+  - report developer
+  - Power BI developer
+  - Power BI analyst
+  - Tableau developer
+  - Python data analyst
+  - SQL data analyst
+  - ETL developer
+  - ETL engineer
+  - analytics engineer
+  - data quality analyst
+  - data operations analyst
+  - junior data engineer
+  - Análisis funcional y requerimientos
+  - analista funcional
+  - functional analyst
+  - business analyst IT
+  - IT business analyst
+  - requirements analyst
+  - analista de requerimientos
+  - systems implementation analyst
+  - implementation specialist
+  - application analyst
+  - ERP analyst
+  - CRM analyst
+  - software implementation consultant
+  - consultor de sistemas
+  - consultor tecnológico
+  - implementation engineer
+  - technical business analyst
+  - analista de procesos TI
+  - Ciberseguridad
+  - cybersecurity
+  - cyber security analyst
+  - cybersecurity analyst
+  - information security analyst
+  - analista de ciberseguridad
+  - analista de seguridad informática
+  - information security
+  - SOC analyst
+  - security operations analyst
+  - junior SOC analyst
+  - security engineer
+  - IAM analyst
+  - identity and access management
+  - vulnerability analyst
+  - penetration tester
+  - application security analyst
+  - IT security analyst
+  - security support analyst
+  - Redes y telecomunicaciones
+  - network administrator
+  - network engineer
+  - network analyst
+  - administrador de redes
+  - técnico de redes
+  - soporte de redes
+  - networking
+  - network support engineer
+  - NOC technician
+  - NOC analyst
+  - network operations center
+  - telecom engineer
+  - Cisco network engineer
+  - wireless network engineer
+  - infrastructure support technician
+  - junior network engineer
+  - Automatización y plataformas empresariales
+  - Power Platform developer
+  - Power Apps developer
+  - Power Automate developer
+  - Microsoft Power Platform
+  - RPA developer
+  - RPA analyst
+  - automation developer
+  - business process automation
+  - UiPath developer
+  - workflow automation
+  - SharePoint developer
+  - Dynamics 365 developer
+  - Salesforce developer
+  - Salesforce administrator
+  - Integración de sistemas y APIs
+  - integration developer
+  - integration engineer
+  - API integration specialist
+  - systems integration analyst
+  - systems integration engineer
+  - EDI developer
+  - EDI analyst
+  - middleware engineer
+  - integration support analyst
+  - application integration
+  - integration consultant
+  - web services developer
+  - Inteligencia artificial
+  - AI developer
+  - AI engineer
+  - artificial intelligence engineer
+  - machine learning engineer
+  - machine learning developer
+  - ingeniero de inteligencia artificial
+  - desarrollador de IA
+  - data science analyst
+  - NLP engineer
+  - LLM engineer
+  - generative AI developer
+  - AI application developer
+  - junior AI engineer
+  - ERP y aplicaciones empresariales
+  - ERP developer
+  - ERP analyst
+  - SAP analyst
+  - SAP developer
+  - SAP support analyst
+  - Oracle developer
+  - Oracle applications analyst
+  - Dynamics 365 consultant
+  - Odoo developer
+  - Odoo functional analyst
+  - enterprise applications analyst
+  - enterprise application support
+  - application support specialist
+  - Gestión de proyectos tecnológicos
+  - IT project assistant
+  - IT project coordinator
+  - technical project coordinator
+  - scrum master junior
+  - agile project coordinator
+  - software project analyst
+  - project analyst IT
+  - application implementation coordinator
+  - Puestos junior, prácticas y primer empleo
+  - IT trainee
+  - technology trainee
+  - software engineering intern
+  - software developer intern
+  - IT intern
+  - internship software development
+  - informática junior
+  - desarrollador junior
+  - programador junior
+  - técnico informático junior
+  - junior programmer
+  - junior software engineer
+  - graduate developer
+  - entry level IT
+  - entry level software engineer
+  - associate developer
+  - apprentice software developer
+  - practicante de informática
+  - pasantía informática
+  - asistente de informática
+  - asistente de sistemas
+  - asistente de soporte técnico
+  - Trabajo remoto e internacional
+  - remote developer
+  - remote software engineer
+  - remote IT support
+  - remote technical support
+  - remote data analyst
+  - remote QA engineer
+  - remote backend developer
+  - remote frontend developer
+  - trabajo remoto informática
+  - empleo remoto tecnología
+  - desarrollador remoto
+  - soporte técnico remoto
+  - trabajo híbrido informática
+  - hybrid software engineer
+  - nearshore developer
+  - LATAM software developer
+  - Latin America remote developer
