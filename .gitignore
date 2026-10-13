@@ -1,0 +1,12 @@
+# Secretos y datos personales (NUNCA subir)
+.env
+config/profile.yml
+
+# Entorno virtual y archivos generados
+.venv/
+__pycache__/
+*.egg-info/
+
+# Bases de datos locales y CVs generados
+*.db
+generated/

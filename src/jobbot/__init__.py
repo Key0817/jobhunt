@@ -1,0 +1,1 @@
+"""jobbot: recolector de ofertas de TI con seguimiento de postulaciones."""
