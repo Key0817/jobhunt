@@ -22,12 +22,6 @@ class ExampleSource(Source):
                 description="API REST con Python, FastAPI y PostgreSQL.",
             ),
             JobPosting(
-                source=self.name, external_id="ex-1", title="Desarrollador Backend Python",
-                company="Acme CR", country="CR", location="San José", remote=False,
-                url="https://example.com/jobs/1", posted_at=today - timedelta(days=1),
-                description="API REST con Python, FastAPI y PostgreSQL.",
-            ),
-            JobPosting(
                 source=self.name, external_id="ex-2", title="Analista de Soporte Técnico",
                 company="Soluciones TI", country="CR", location="Heredia", remote=False,
                 url="https://example.com/jobs/2", posted_at=today - timedelta(days=3),
