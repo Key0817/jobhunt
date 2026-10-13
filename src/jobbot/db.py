@@ -7,7 +7,6 @@ from pathlib import Path
 
 HERE = Path(__file__).parent
 
-# sqlite3 ya no recomienda su adaptador de datetime por defecto (Python 3.12+).
 sqlite3.register_adapter(datetime, lambda d: d.isoformat())
 
 
