@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from . import example  
+from . import example, getonboard 
 from .base import REGISTRY, Source
 
 
