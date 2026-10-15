@@ -34,6 +34,7 @@ class SearchQuery:
     countries: tuple[str, ...]
     include_remote_latam: bool = True
     max_age_days: int = 14
+    residence_country: str = "CR"
 
 
 @dataclass(frozen=True)

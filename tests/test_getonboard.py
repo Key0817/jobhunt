@@ -1,10 +1,10 @@
+import gzip
+import http.client
 import unittest
 import urllib.error
 import urllib.parse
 from datetime import timedelta
 
-import gzip
-import http.client
 from jobbot import repo
 from jobbot.db import Database
 from jobbot.models import SearchQuery
@@ -41,22 +41,40 @@ SAMPLE = {
 }
 
 
-def make_job(job_id, countries=(), **attrs):
+def make_job(job_id, countries=(), modality=None, **attrs):
     job = {
         "id": f"job-{job_id}",
         "type": "job",
         "attributes": {"title": f"Dev {job_id}", "countries": list(countries), "remote": False},
         "links": {"public_url": f"https://example.com/jobs/{job_id}"},
     }
+    if modality:
+        job["attributes"]["remote_modality"] = modality
     job["attributes"].update(attrs)
     return job
 
 
+def params_of(url):
+    return urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+
+
 def page_of(url):
-    return int(urllib.parse.parse_qs(urllib.parse.urlparse(url).query)["page"][0])
+    return int(params_of(url)["page"][0])
 
 
-QUERY = SearchQuery(keywords=("python",), countries=("CR",), max_age_days=14)
+def category_of(url):
+    return urllib.parse.urlparse(url).path.split("/")[-2]
+
+
+def source(fake, **kwargs):
+    """Fuente de pruebas: una categoría, sin pausas ni esperas reales."""
+    kwargs.setdefault("categories", ("programacion",))
+    kwargs.setdefault("sleep", lambda s: None)
+    return GetOnBoardSource(fetch_json=fake, **kwargs)
+
+
+QUERY = SearchQuery(keywords=(), countries=("CR",), max_age_days=14, residence_country="CR")
+GLOBAL_ONLY = SearchQuery(keywords=(), countries=(), residence_country="")
 
 
 class HtmlToTextTests(unittest.TestCase):
@@ -122,17 +140,93 @@ class ToPostingTests(unittest.TestCase):
 
 
 class FetchTests(unittest.TestCase):
+    def test_decode_handles_plain_and_gzip(self):
+        raw = b'{"data": [1]}'
+        self.assertEqual(GetOnBoardSource._decode(raw, None), {"data": [1]})
+        self.assertEqual(GetOnBoardSource._decode(gzip.compress(raw), "gzip"), {"data": [1]})
+        self.assertEqual(GetOnBoardSource._decode(gzip.compress(raw), "GZIP"), {"data": [1]})
+
+    def test_runs_residence_pass_before_global_pass(self):
+        urls = []
+
+        def fake(url):
+            urls.append(url)
+            return {"data": []}
+
+        source(fake, categories=("a", "b")).fetch(QUERY)
+        orden = [(category_of(u), params_of(u).get("country_code")) for u in urls]
+        self.assertEqual(orden, [("a", ["cr"]), ("b", ["cr"]), ("a", None), ("b", None)])
+
+    def test_request_url_has_expected_parameters(self):
+        urls = []
+
+        def fake(url):
+            urls.append(url)
+            return {"data": []}
+
+        source(fake).fetch(QUERY)
+        con_pais, sin_pais = params_of(urls[0]), params_of(urls[1])
+        self.assertIn("/api/v0/categories/programacion/jobs", urls[0])
+        for params in (con_pais, sin_pais):
+            self.assertEqual(params["per_page"], ["100"])
+            self.assertEqual(params["page"], ["1"])
+            self.assertEqual(params["lang"], ["es"])
+            self.assertEqual(params["expand[]"], ["company"])
+        self.assertEqual(con_pais["country_code"], ["cr"])
+        self.assertNotIn("country_code", sin_pais)
+
+    def test_residence_pass_keeps_everything_the_server_returns(self):
+        def fake(url):
+            if "country_code" in params_of(url):
+                return {"data": [make_job("local", modality="remote_local"),
+                                 make_job("hybrid", modality="hybrid")]}
+            return {"data": []}
+
+        postings = source(fake).fetch(QUERY)
+        self.assertEqual(sorted(p.external_id for p in postings), ["job-hybrid", "job-local"])
+
+    def test_global_pass_keeps_only_fully_remote(self):
+        def fake(url):
+            if "country_code" in params_of(url):
+                return {"data": []}
+            return {"data": [make_job("global", modality="fully_remote"),
+                             make_job("local", modality="remote_local"),
+                             make_job("hybrid", modality="hybrid"),
+                             make_job("onsite", modality="no_remote"),
+                             make_job("unknown")]}
+
+        postings = source(fake).fetch(QUERY)
+        self.assertEqual([p.external_id for p in postings], ["job-global"])
+
+    def test_without_residence_country_only_the_global_pass_runs(self):
+        urls = []
+
+        def fake(url):
+            urls.append(url)
+            return {"data": []}
+
+        source(fake, categories=("a", "b")).fetch(GLOBAL_ONLY)
+        self.assertEqual(len(urls), 2)
+        self.assertTrue(all("country_code" not in params_of(u) for u in urls))
+
+    def test_same_offer_in_both_passes_counts_once(self):
+        def fake(url):
+            return {"data": [make_job(1, modality="fully_remote")]}
+
+        postings = source(fake).fetch(QUERY)
+        self.assertEqual(len(postings), 1)
+
     def test_follows_meta_total_pages_and_pauses_between_requests(self):
         urls, sleeps = [], []
 
         def fake(url):
             urls.append(url)
             n = page_of(url)
-            return {"data": [make_job(f"{n}a", ["Chile"]), make_job(f"{n}b", ["Chile"])],
+            return {"data": [make_job(f"{n}a", modality="fully_remote"),
+                             make_job(f"{n}b", modality="fully_remote")],
                     "meta": {"page": n, "per_page": 100, "total_pages": 2}}
 
-        source = GetOnBoardSource(fetch_json=fake, sleep=sleeps.append, pause=0.5)
-        postings = source.fetch(QUERY)
+        postings = source(fake, sleep=sleeps.append, pause=0.5).fetch(GLOBAL_ONLY)
         self.assertEqual(len(urls), 2)
         self.assertEqual(len(postings), 4)
         self.assertEqual(sleeps, [0.5])
@@ -142,9 +236,9 @@ class FetchTests(unittest.TestCase):
 
         def fake(url):
             urls.append(url)
-            return {"data": [make_job(1)]}
+            return {"data": [make_job(1, modality="fully_remote")]}
 
-        postings = GetOnBoardSource(fetch_json=fake, sleep=lambda s: None).fetch(QUERY)
+        postings = source(fake).fetch(GLOBAL_ONLY)
         self.assertEqual(len(urls), 1)
         self.assertEqual(len(postings), 1)
 
@@ -155,43 +249,8 @@ class FetchTests(unittest.TestCase):
             urls.append(url)
             return {"data": [], "meta": {"page": 1, "per_page": 100, "total_pages": 5}}
 
-        postings = GetOnBoardSource(fetch_json=fake, sleep=lambda s: None).fetch(QUERY)
+        postings = source(fake).fetch(GLOBAL_ONLY)
         self.assertEqual(len(urls), 1)
-        self.assertEqual(postings, [])
-
-    def test_deduplicates_across_keywords(self):
-        urls = []
-
-        def fake(url):
-            urls.append(url)
-            return {"data": [make_job(1, ["Chile"])]}
-
-        query = SearchQuery(keywords=("python", "java", "qa"), countries=())
-        postings = GetOnBoardSource(fetch_json=fake, sleep=lambda s: None).fetch(query)
-        self.assertEqual(len(urls), 3)   # una petición por palabra clave
-        self.assertEqual(len(postings), 1)  # pero la oferta cuenta una sola vez
-
-    def test_request_url_has_expected_parameters(self):
-        urls = []
-
-        def fake(url):
-            urls.append(url)
-            return {"data": []}
-
-        GetOnBoardSource(fetch_json=fake, sleep=lambda s: None).fetch(
-            SearchQuery(keywords=("soporte técnico",), countries=()))
-        params = urllib.parse.parse_qs(urllib.parse.urlparse(urls[0]).query)
-        self.assertEqual(params["query"], ["soporte técnico"])
-        self.assertEqual(params["per_page"], ["100"])
-        self.assertEqual(params["page"], ["1"])
-        self.assertEqual(params["expand[]"], ["company"])
-
-    def test_no_keywords_makes_no_requests(self):
-        def fake(url):
-            raise AssertionError("no debería llamar a la API")
-
-        postings = GetOnBoardSource(fetch_json=fake, sleep=lambda s: None).fetch(
-            SearchQuery(keywords=(), countries=()))
         self.assertEqual(postings, [])
 
     def test_retries_on_429_then_succeeds(self):
@@ -201,10 +260,10 @@ class FetchTests(unittest.TestCase):
             attempts.append(url)
             if len(attempts) == 1:
                 raise urllib.error.HTTPError(url, 429, "Too Many Requests", {}, None)
-            return {"data": [make_job(1)]}
+            return {"data": [make_job(1, modality="fully_remote")]}
 
         with self.assertLogs("jobbot", level="WARNING"):
-            postings = GetOnBoardSource(fetch_json=flaky, sleep=sleeps.append).fetch(QUERY)
+            postings = source(flaky, sleep=sleeps.append).fetch(GLOBAL_ONLY)
         self.assertEqual(len(attempts), 2)
         self.assertEqual(sleeps, [2])
         self.assertEqual(len(postings), 1)
@@ -218,7 +277,7 @@ class FetchTests(unittest.TestCase):
 
         with self.assertLogs("jobbot", level="WARNING"):
             with self.assertRaises(urllib.error.HTTPError):
-                GetOnBoardSource(fetch_json=always_429, sleep=sleeps.append).fetch(QUERY)
+                source(always_429, sleep=sleeps.append).fetch(GLOBAL_ONLY)
         self.assertEqual(len(attempts), 3)  # 1 intento + 2 reintentos
         self.assertEqual(sleeps, [2, 4])
 
@@ -231,15 +290,9 @@ class FetchTests(unittest.TestCase):
 
         with self.assertLogs("jobbot", level="WARNING"):
             with self.assertRaises(urllib.error.HTTPError):
-                GetOnBoardSource(fetch_json=not_found, sleep=sleeps.append).fetch(QUERY)
+                source(not_found, sleep=sleeps.append).fetch(GLOBAL_ONLY)
         self.assertEqual(len(attempts), 1)
         self.assertEqual(sleeps, [])
-
-    def test_decode_handles_plain_and_gzip(self):
-        raw = b'{"data": [1]}'
-        self.assertEqual(GetOnBoardSource._decode(raw, None), {"data": [1]})
-        self.assertEqual(GetOnBoardSource._decode(gzip.compress(raw), "gzip"), {"data": [1]})
-        self.assertEqual(GetOnBoardSource._decode(gzip.compress(raw), "GZIP"), {"data": [1]})
 
     def test_connection_errors_are_retried(self):
         for error in (ConnectionResetError("reset"), http.client.IncompleteRead(b""), TimeoutError("timeout")):
@@ -250,44 +303,43 @@ class FetchTests(unittest.TestCase):
                     attempts.append(url)
                     if len(attempts) == 1:
                         raise error
-                    return {"data": [make_job(1)]}
+                    return {"data": [make_job(1, modality="fully_remote")]}
 
                 with self.assertLogs("jobbot", level="WARNING"):
-                    postings = GetOnBoardSource(fetch_json=flaky, sleep=lambda s: None).fetch(QUERY)
+                    postings = source(flaky).fetch(GLOBAL_ONLY)
                 self.assertEqual(len(attempts), 2)
                 self.assertEqual(len(postings), 1)
 
-    def test_failed_keyword_is_skipped_and_others_are_kept(self):
+    def test_failed_task_is_skipped_and_others_are_kept(self):
         def fake(url):
-            keyword = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)["query"][0]
-            if keyword == "java":
+            category = category_of(url)
+            if category == "b":
                 raise TimeoutError("read timed out")
-            return {"data": [make_job(keyword)]}
+            return {"data": [make_job(category, modality="fully_remote")]}
 
-        query = SearchQuery(keywords=("python", "java", "qa"), countries=())
         with self.assertLogs("jobbot", level="WARNING") as logs:
-            postings = GetOnBoardSource(fetch_json=fake, sleep=lambda s: None).fetch(query)
-        self.assertEqual(sorted(p.external_id for p in postings), ["job-python", "job-qa"])
-        self.assertTrue(any("java" in line and "corrida parcial" in line for line in logs.output))
+            postings = source(fake, categories=("a", "b", "c")).fetch(GLOBAL_ONLY)
+        self.assertEqual(sorted(p.external_id for p in postings), ["job-a", "job-c"])
+        self.assertTrue(any("b [global]" in line and "corrida parcial" in line for line in logs.output))
 
     def test_failure_on_second_page_keeps_first_page(self):
         def fake(url):
             if page_of(url) == 2:
                 raise TimeoutError("read timed out")
-            return {"data": [make_job("p1")], "meta": {"page": 1, "per_page": 100, "total_pages": 3}}
+            return {"data": [make_job("p1", modality="fully_remote")],
+                    "meta": {"page": 1, "per_page": 100, "total_pages": 3}}
 
         with self.assertLogs("jobbot", level="WARNING"):
-            postings = GetOnBoardSource(fetch_json=fake, sleep=lambda s: None).fetch(QUERY)
+            postings = source(fake).fetch(GLOBAL_ONLY)
         self.assertEqual([p.external_id for p in postings], ["job-p1"])
 
     def test_all_requests_failing_raises_last_error(self):
         def fake(url):
             raise TimeoutError("read timed out")
 
-        query = SearchQuery(keywords=("python", "java"), countries=())
         with self.assertLogs("jobbot", level="WARNING"):
             with self.assertRaises(TimeoutError):
-                GetOnBoardSource(fetch_json=fake, sleep=lambda s: None).fetch(query)
+                source(fake, categories=("a", "b")).fetch(GLOBAL_ONLY)
 
     def test_stops_after_consecutive_failures(self):
         calls = []
@@ -296,43 +348,39 @@ class FetchTests(unittest.TestCase):
             calls.append(url)
             raise TimeoutError("read timed out")
 
-        query = SearchQuery(keywords=("a", "b", "c", "d", "e", "f"), countries=())
         with self.assertLogs("jobbot", level="WARNING"):
             with self.assertRaises(TimeoutError):
-                GetOnBoardSource(fetch_json=fake, sleep=lambda s: None).fetch(query)
-        self.assertEqual(len(calls), 9)  # 3 palabras clave x 3 intentos; las otras 3 ni se intentan
+                source(fake, categories=("a", "b", "c", "d", "e", "f")).fetch(GLOBAL_ONLY)
+        self.assertEqual(len(calls), 9)  # 3 consultas x 3 intentos; las otras 3 ni se intentan
 
     def test_a_success_resets_the_consecutive_failure_count(self):
         def fake(url):
-            keyword = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)["query"][0]
-            if keyword in ("a", "c", "e"):
+            category = category_of(url)
+            if category in ("a", "c", "e"):
                 raise TimeoutError("read timed out")
-            return {"data": [make_job(keyword)]}
+            return {"data": [make_job(category, modality="fully_remote")]}
 
-        query = SearchQuery(keywords=("a", "b", "c", "d", "e", "f"), countries=())
         with self.assertLogs("jobbot", level="WARNING"):
-            postings = GetOnBoardSource(fetch_json=fake, sleep=lambda s: None).fetch(query)
+            postings = source(fake, categories=("a", "b", "c", "d", "e", "f")).fetch(GLOBAL_ONLY)
         self.assertEqual(sorted(p.external_id for p in postings), ["job-b", "job-d", "job-f"])
-        
+
     def test_stops_when_time_budget_is_exhausted(self):
         now = [0.0]
         calls = []
 
         def fake(url):
             calls.append(url)
-            now[0] += 100  
-            keyword = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)["query"][0]
-            return {"data": [make_job(keyword)]}
+            now[0] += 100  # cada petición "tarda" 100 segundos
+            return {"data": [make_job(category_of(url), modality="fully_remote")]}
 
-        query = SearchQuery(keywords=("a", "b", "c", "d", "e"), countries=())
-        source = GetOnBoardSource(fetch_json=fake, sleep=lambda s: None,
-                                  clock=lambda: now[0], max_runtime=250)
         with self.assertLogs("jobbot", level="WARNING") as logs:
-            postings = source.fetch(query)
+            postings = source(fake, categories=("a", "b", "c", "d", "e"),
+                              clock=lambda: now[0], max_runtime=250).fetch(GLOBAL_ONLY)
         self.assertEqual(len(calls), 3)  # a 0 s, 100 s y 200 s; a los 300 s ya no hay presupuesto
         self.assertEqual(sorted(p.external_id for p in postings), ["job-a", "job-b", "job-c"])
         self.assertTrue(any("presupuesto de tiempo" in line for line in logs.output))
-        
+
+
 class PipelineIntegrationTests(unittest.TestCase):
     def test_stores_recent_offers_and_drops_old_ones(self):
         fresh = int((repo.now() - timedelta(days=1)).timestamp())

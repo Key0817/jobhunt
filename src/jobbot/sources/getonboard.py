@@ -20,14 +20,19 @@ from .base import Source, register
 
 log = logging.getLogger("jobbot")
 
-API_URL = "https://www.getonbrd.com/api/v0/search/jobs"
+BASE_URL = "https://www.getonbrd.com/api/v0"
+# Categorías de TI. Los identificadores salen de GET /api/v0/categories.
+CATEGORIES = (
+    "programacion", "desarrollo-mobile", "sysadmin-devops-qa", "technical-support",
+    "data-science-analytics", "cybersecurity", "machine-learning-ai",
+)
 PER_PAGE = 100            # el máximo que permite la API es 120
-MAX_PAGES = 3             # tope de páginas por palabra clave
+MAX_PAGES = 6             # tope de páginas por categoría y pasada
 PAUSE_SECONDS = 1.0       # espera entre peticiones, para no castigar su servidor
 RETRIES = 2               # reintentos ante errores temporales (429, 5xx, cortes de red)
-TIMEOUT_SECONDS = 10      # máximo sin recibir datos del servidor
-MAX_RUNTIME_SECONDS = 240 
-MAX_CONSECUTIVE_FAILURES = 3   # si fallan 3 palabras clave seguidas, el servicio está mal: paramos
+TIMEOUT_SECONDS = 10      # máximo sin recibir datos del servidor (una petición normal tarda 1-3 s)
+MAX_RUNTIME_SECONDS = 240 # presupuesto total de tiempo por corrida
+MAX_CONSECUTIVE_FAILURES = 3   # si fallan 3 consultas seguidas, el servicio está mal: paramos
 USER_AGENT = "jobbot-personal/0.1"
 NETWORK_ERRORS = (urllib.error.URLError, TimeoutError, ConnectionError, http.client.HTTPException)
 MAX_DESCRIPTION_CHARS = 20_000
@@ -101,6 +106,8 @@ def to_posting(job: dict) -> JobPosting | None:
         title=title,
         url=url,
         company=_company_name(attrs.get("company")),
+        # Un solo país reconocido -> lo usamos. Varios o ninguno ("Remoto") -> None.
+        # La lista completa queda en location y en raw (se revisa en la Fase 2).
         country=codes[0] if len(codes) == 1 else None,
         location=", ".join(names) or None,
         remote=remote if isinstance(remote, bool) else None,
@@ -115,12 +122,15 @@ class GetOnBoardSource(Source):
     name = "getonboard"
 
     def __init__(self, fetch_json=None, sleep=time.sleep, pause: float = PAUSE_SECONDS,
-                 clock=time.monotonic, max_runtime: float = MAX_RUNTIME_SECONDS):
+                 clock=time.monotonic, max_runtime: float = MAX_RUNTIME_SECONDS,
+                 categories=CATEGORIES):
+        # fetch_json, sleep y clock se pueden reemplazar en los tests (sin red ni esperas).
         self._fetch_json = fetch_json or self._http_get_json
         self._sleep = sleep
         self._pause = pause
         self._clock = clock
         self._max_runtime = max_runtime
+        self._categories = tuple(categories)
 
     @staticmethod
     def _decode(raw: bytes, encoding: str | None) -> dict:
@@ -140,10 +150,11 @@ class GetOnBoardSource(Source):
             return GetOnBoardSource._decode(response.read(), response.headers.get("Content-Encoding"))
 
     @staticmethod
-    def _url(keyword: str, page: int) -> str:
-        params = [("query", keyword), ("page", page), ("per_page", PER_PAGE),
-                  ("lang", "es"), ("expand[]", "company")]
-        return f"{API_URL}?{urllib.parse.urlencode(params)}"
+    def _url(category: str, page: int, country: str | None = None) -> str:
+        params = [("page", page), ("per_page", PER_PAGE), ("lang", "es"), ("expand[]", "company")]
+        if country:
+            params.append(("country_code", country))
+        return f"{BASE_URL}/categories/{urllib.parse.quote(category)}/jobs?{urllib.parse.urlencode(params)}"
 
     def _get(self, url: str) -> dict:
         """GET con reintentos y espera creciente ante errores temporales."""
@@ -162,17 +173,30 @@ class GetOnBoardSource(Source):
             self._sleep(wait)
         raise RuntimeError("inalcanzable")
 
+    def _tasks(self, query: SearchQuery) -> list[tuple[str, str | None]]:
+        """Qué consultar, en orden de valor.
+
+        Pasada A (con country_code): ofertas que aceptan a alguien que vive en tu país.
+        Pasada B (sin filtro): ofertas 100% remotas, que se pueden hacer desde cualquier lugar.
+        """
+        tasks: list[tuple[str, str | None]] = []
+        if query.residence_country:
+            tasks += [(c, query.residence_country.lower()) for c in self._categories]
+        tasks += [(c, None) for c in self._categories]
+        return tasks
+
     def fetch(self, query: SearchQuery) -> list[JobPosting]:
         found: dict[str, JobPosting] = {}
-        failed_keywords: list[str] = []
+        failed_tasks: list[str] = []
         consecutive_failures = 0
         last_error: Exception | None = None
         first_request = True
         deadline = self._clock() + self._max_runtime
         out_of_time = False
 
-        for keyword in query.keywords:
-            keyword_failed = False
+        for category, country in self._tasks(query):
+            label = f"{category} [{country or 'global'}]"
+            task_failed = False
             for page in range(1, MAX_PAGES + 1):
                 if self._clock() >= deadline:
                     out_of_time = True
@@ -183,22 +207,31 @@ class GetOnBoardSource(Source):
 
                 started = time.monotonic()
                 try:
-                    payload = self._get(self._url(keyword, page))
+                    payload = self._get(self._url(category, page, country))
                 except NETWORK_ERRORS + (ValueError,) as exc:
-                    keyword_failed = True
+                    # Una consulta que falla no debe tirar abajo las demás ni
+                    # hacernos perder lo ya recolectado.
+                    task_failed = True
                     last_error = exc
-                    failed_keywords.append(keyword)
-                    log.warning("Get on Board: se omite %r (pág. %d): %s: %s",
-                                keyword, page, type(exc).__name__, exc)
+                    failed_tasks.append(label)
+                    log.warning("Get on Board: se omite %s (pág. %d): %s: %s",
+                                label, page, type(exc).__name__, exc)
                     break
 
                 jobs = payload.get("data") or []
-                log.info("Get on Board: %r pág. %d -> %d ofertas (%.1f s)",
-                         keyword, page, len(jobs), time.monotonic() - started)
+                kept = 0
                 for job in jobs:
                     posting = to_posting(job)
-                    if posting:
-                        found.setdefault(posting.external_id or posting.url, posting)
+                    if posting is None:
+                        continue
+                    # Con country_code, el servidor ya filtró por ti. Sin filtro, solo nos sirven
+                    # las 100% remotas: las presenciales, híbridas o remotas de otro país no.
+                    if country is None and posting.raw.get("remote_modality") != "fully_remote":
+                        continue
+                    found.setdefault(posting.external_id or posting.url, posting)
+                    kept += 1
+                log.info("Get on Board: %s pág. %d -> %d ofertas, %d útiles (%.1f s)",
+                         label, page, len(jobs), kept, time.monotonic() - started)
 
                 total_pages = (payload.get("meta") or {}).get("total_pages")
                 if not jobs:
@@ -210,19 +243,18 @@ class GetOnBoardSource(Source):
                     break
 
             if out_of_time:
-                log.warning("Get on Board: se agotó el presupuesto de tiempo (%d s) en %r; "
-                            "las palabras clave restantes no se consultaron",
-                            self._max_runtime, keyword)
+                log.warning("Get on Board: se agotó el presupuesto de tiempo (%d s) en %s; "
+                            "las consultas restantes no se hicieron", self._max_runtime, label)
                 break
-            consecutive_failures = consecutive_failures + 1 if keyword_failed else 0
+            consecutive_failures = consecutive_failures + 1 if task_failed else 0
             if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
-                log.warning("Get on Board: %d palabras clave seguidas fallaron; se detiene la corrida",
+                log.warning("Get on Board: %d consultas seguidas fallaron; se detiene la corrida",
                             consecutive_failures)
                 break
 
-        if failed_keywords and not found:
-            raise last_error  
-        if failed_keywords:
-            log.warning("Get on Board: corrida parcial; fallaron: %s", ", ".join(dict.fromkeys(failed_keywords)))
+        if failed_tasks and not found:
+            raise last_error  # no se obtuvo nada: que el pipeline lo registre como fallo
+        if failed_tasks:
+            log.warning("Get on Board: corrida parcial; fallaron: %s", ", ".join(dict.fromkeys(failed_tasks)))
         log.info("Get on Board: %d ofertas únicas", len(found))
         return list(found.values())
