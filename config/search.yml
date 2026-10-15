@@ -1,6 +1,6 @@
 # Qué busca el bot. Los adaptadores reales se agregan en la Fase 1.
 sources:
-  - example          # datos de prueba; reemplazar por getonboard, remotive, etc.
+  - getonboard         
 
 residence_country: CR 
 max_age_days: 30
