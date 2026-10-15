@@ -3,7 +3,9 @@ Referencia: https://www.getonbrd.com/api-doc.html
 """
 from __future__ import annotations
 
+import gzip
 import html
+import http.client
 import json
 import logging
 import re
@@ -21,9 +23,13 @@ log = logging.getLogger("jobbot")
 API_URL = "https://www.getonbrd.com/api/v0/search/jobs"
 PER_PAGE = 100            # el máximo que permite la API es 120
 MAX_PAGES = 3             # tope de páginas por palabra clave
-PAUSE_SECONDS = 1.0       # espera entre peticiones, para no castigar el servidor 
-RETRIES = 2               # reintentos ante errores temporales (429 o 5xx)
+PAUSE_SECONDS = 1.0       # espera entre peticiones, para no castigar su servidor
+RETRIES = 2               # reintentos ante errores temporales (429, 5xx, cortes de red)
+TIMEOUT_SECONDS = 10      # máximo sin recibir datos del servidor
+MAX_RUNTIME_SECONDS = 240 
+MAX_CONSECUTIVE_FAILURES = 3   # si fallan 3 palabras clave seguidas, el servicio está mal: paramos
 USER_AGENT = "jobbot-personal/0.1"
+NETWORK_ERRORS = (urllib.error.URLError, TimeoutError, ConnectionError, http.client.HTTPException)
 MAX_DESCRIPTION_CHARS = 20_000
 
 # Nombre del país (sin tildes ni mayúsculas, ver models.normalize) -> código ISO.
@@ -108,19 +114,30 @@ def to_posting(job: dict) -> JobPosting | None:
 class GetOnBoardSource(Source):
     name = "getonboard"
 
-    def __init__(self, fetch_json=None, sleep=time.sleep, pause: float = PAUSE_SECONDS):
-        # fetch_json y sleep se pueden reemplazar en los tests (sin red y sin esperas).
+    def __init__(self, fetch_json=None, sleep=time.sleep, pause: float = PAUSE_SECONDS,
+                 clock=time.monotonic, max_runtime: float = MAX_RUNTIME_SECONDS):
         self._fetch_json = fetch_json or self._http_get_json
         self._sleep = sleep
         self._pause = pause
+        self._clock = clock
+        self._max_runtime = max_runtime
+
+    @staticmethod
+    def _decode(raw: bytes, encoding: str | None) -> dict:
+        if encoding and encoding.lower() == "gzip":
+            raw = gzip.decompress(raw)
+        return json.loads(raw)
 
     @staticmethod
     def _http_get_json(url: str) -> dict:
+        # Pedimos gzip: el JSON se comprime muchísimo y hay menos riesgo de cortes y timeouts.
         request = urllib.request.Request(
-            url, headers={"User-Agent": USER_AGENT, "Accept": "application/json"}
+            url,
+            headers={"User-Agent": USER_AGENT, "Accept": "application/json",
+                     "Accept-Encoding": "gzip"},
         )
-        with urllib.request.urlopen(request, timeout=20) as response:
-            return json.load(response)
+        with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:
+            return GetOnBoardSource._decode(response.read(), response.headers.get("Content-Encoding"))
 
     @staticmethod
     def _url(keyword: str, page: int) -> str:
@@ -137,7 +154,7 @@ class GetOnBoardSource(Source):
                 temporary = exc.code == 429 or exc.code >= 500
                 if not temporary or attempt == RETRIES:
                     raise
-            except (urllib.error.URLError, TimeoutError):
+            except NETWORK_ERRORS:
                 if attempt == RETRIES:
                     raise
             wait = 2 ** (attempt + 1)
@@ -147,15 +164,37 @@ class GetOnBoardSource(Source):
 
     def fetch(self, query: SearchQuery) -> list[JobPosting]:
         found: dict[str, JobPosting] = {}
+        failed_keywords: list[str] = []
+        consecutive_failures = 0
+        last_error: Exception | None = None
         first_request = True
+        deadline = self._clock() + self._max_runtime
+        out_of_time = False
+
         for keyword in query.keywords:
+            keyword_failed = False
             for page in range(1, MAX_PAGES + 1):
+                if self._clock() >= deadline:
+                    out_of_time = True
+                    break
                 if not first_request:
                     self._sleep(self._pause)
                 first_request = False
 
-                payload = self._get(self._url(keyword, page))
+                started = time.monotonic()
+                try:
+                    payload = self._get(self._url(keyword, page))
+                except NETWORK_ERRORS + (ValueError,) as exc:
+                    keyword_failed = True
+                    last_error = exc
+                    failed_keywords.append(keyword)
+                    log.warning("Get on Board: se omite %r (pág. %d): %s: %s",
+                                keyword, page, type(exc).__name__, exc)
+                    break
+
                 jobs = payload.get("data") or []
+                log.info("Get on Board: %r pág. %d -> %d ofertas (%.1f s)",
+                         keyword, page, len(jobs), time.monotonic() - started)
                 for job in jobs:
                     posting = to_posting(job)
                     if posting:
@@ -169,5 +208,21 @@ class GetOnBoardSource(Source):
                         break
                 elif len(jobs) < PER_PAGE:
                     break
+
+            if out_of_time:
+                log.warning("Get on Board: se agotó el presupuesto de tiempo (%d s) en %r; "
+                            "las palabras clave restantes no se consultaron",
+                            self._max_runtime, keyword)
+                break
+            consecutive_failures = consecutive_failures + 1 if keyword_failed else 0
+            if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                log.warning("Get on Board: %d palabras clave seguidas fallaron; se detiene la corrida",
+                            consecutive_failures)
+                break
+
+        if failed_keywords and not found:
+            raise last_error  
+        if failed_keywords:
+            log.warning("Get on Board: corrida parcial; fallaron: %s", ", ".join(dict.fromkeys(failed_keywords)))
         log.info("Get on Board: %d ofertas únicas", len(found))
         return list(found.values())

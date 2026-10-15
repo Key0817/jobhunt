@@ -3,6 +3,8 @@ import urllib.error
 import urllib.parse
 from datetime import timedelta
 
+import gzip
+import http.client
 from jobbot import repo
 from jobbot.db import Database
 from jobbot.models import SearchQuery
@@ -227,12 +229,110 @@ class FetchTests(unittest.TestCase):
             attempts.append(url)
             raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)
 
-        with self.assertRaises(urllib.error.HTTPError):
-            GetOnBoardSource(fetch_json=not_found, sleep=sleeps.append).fetch(QUERY)
+        with self.assertLogs("jobbot", level="WARNING"):
+            with self.assertRaises(urllib.error.HTTPError):
+                GetOnBoardSource(fetch_json=not_found, sleep=sleeps.append).fetch(QUERY)
         self.assertEqual(len(attempts), 1)
         self.assertEqual(sleeps, [])
 
+    def test_decode_handles_plain_and_gzip(self):
+        raw = b'{"data": [1]}'
+        self.assertEqual(GetOnBoardSource._decode(raw, None), {"data": [1]})
+        self.assertEqual(GetOnBoardSource._decode(gzip.compress(raw), "gzip"), {"data": [1]})
+        self.assertEqual(GetOnBoardSource._decode(gzip.compress(raw), "GZIP"), {"data": [1]})
 
+    def test_connection_errors_are_retried(self):
+        for error in (ConnectionResetError("reset"), http.client.IncompleteRead(b""), TimeoutError("timeout")):
+            with self.subTest(error=type(error).__name__):
+                attempts = []
+
+                def flaky(url, error=error):
+                    attempts.append(url)
+                    if len(attempts) == 1:
+                        raise error
+                    return {"data": [make_job(1)]}
+
+                with self.assertLogs("jobbot", level="WARNING"):
+                    postings = GetOnBoardSource(fetch_json=flaky, sleep=lambda s: None).fetch(QUERY)
+                self.assertEqual(len(attempts), 2)
+                self.assertEqual(len(postings), 1)
+
+    def test_failed_keyword_is_skipped_and_others_are_kept(self):
+        def fake(url):
+            keyword = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)["query"][0]
+            if keyword == "java":
+                raise TimeoutError("read timed out")
+            return {"data": [make_job(keyword)]}
+
+        query = SearchQuery(keywords=("python", "java", "qa"), countries=())
+        with self.assertLogs("jobbot", level="WARNING") as logs:
+            postings = GetOnBoardSource(fetch_json=fake, sleep=lambda s: None).fetch(query)
+        self.assertEqual(sorted(p.external_id for p in postings), ["job-python", "job-qa"])
+        self.assertTrue(any("java" in line and "corrida parcial" in line for line in logs.output))
+
+    def test_failure_on_second_page_keeps_first_page(self):
+        def fake(url):
+            if page_of(url) == 2:
+                raise TimeoutError("read timed out")
+            return {"data": [make_job("p1")], "meta": {"page": 1, "per_page": 100, "total_pages": 3}}
+
+        with self.assertLogs("jobbot", level="WARNING"):
+            postings = GetOnBoardSource(fetch_json=fake, sleep=lambda s: None).fetch(QUERY)
+        self.assertEqual([p.external_id for p in postings], ["job-p1"])
+
+    def test_all_requests_failing_raises_last_error(self):
+        def fake(url):
+            raise TimeoutError("read timed out")
+
+        query = SearchQuery(keywords=("python", "java"), countries=())
+        with self.assertLogs("jobbot", level="WARNING"):
+            with self.assertRaises(TimeoutError):
+                GetOnBoardSource(fetch_json=fake, sleep=lambda s: None).fetch(query)
+
+    def test_stops_after_consecutive_failures(self):
+        calls = []
+
+        def fake(url):
+            calls.append(url)
+            raise TimeoutError("read timed out")
+
+        query = SearchQuery(keywords=("a", "b", "c", "d", "e", "f"), countries=())
+        with self.assertLogs("jobbot", level="WARNING"):
+            with self.assertRaises(TimeoutError):
+                GetOnBoardSource(fetch_json=fake, sleep=lambda s: None).fetch(query)
+        self.assertEqual(len(calls), 9)  # 3 palabras clave x 3 intentos; las otras 3 ni se intentan
+
+    def test_a_success_resets_the_consecutive_failure_count(self):
+        def fake(url):
+            keyword = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)["query"][0]
+            if keyword in ("a", "c", "e"):
+                raise TimeoutError("read timed out")
+            return {"data": [make_job(keyword)]}
+
+        query = SearchQuery(keywords=("a", "b", "c", "d", "e", "f"), countries=())
+        with self.assertLogs("jobbot", level="WARNING"):
+            postings = GetOnBoardSource(fetch_json=fake, sleep=lambda s: None).fetch(query)
+        self.assertEqual(sorted(p.external_id for p in postings), ["job-b", "job-d", "job-f"])
+        
+    def test_stops_when_time_budget_is_exhausted(self):
+        now = [0.0]
+        calls = []
+
+        def fake(url):
+            calls.append(url)
+            now[0] += 100  
+            keyword = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)["query"][0]
+            return {"data": [make_job(keyword)]}
+
+        query = SearchQuery(keywords=("a", "b", "c", "d", "e"), countries=())
+        source = GetOnBoardSource(fetch_json=fake, sleep=lambda s: None,
+                                  clock=lambda: now[0], max_runtime=250)
+        with self.assertLogs("jobbot", level="WARNING") as logs:
+            postings = source.fetch(query)
+        self.assertEqual(len(calls), 3)  # a 0 s, 100 s y 200 s; a los 300 s ya no hay presupuesto
+        self.assertEqual(sorted(p.external_id for p in postings), ["job-a", "job-b", "job-c"])
+        self.assertTrue(any("presupuesto de tiempo" in line for line in logs.output))
+        
 class PipelineIntegrationTests(unittest.TestCase):
     def test_stores_recent_offers_and_drops_old_ones(self):
         fresh = int((repo.now() - timedelta(days=1)).timestamp())
