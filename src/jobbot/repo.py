@@ -30,13 +30,14 @@ def _to_datetime(value) -> datetime | None:
     return datetime.fromisoformat(str(value))
 
 
-def insert_job_if_new(db: Database, p: JobPosting, score: Score | None = None) -> bool:
+async def insert_job_if_new(db: Database, p: JobPosting, score: Score | None = None) -> bool:
     """Guarda la oferta si no existía (según dedupe_key). Devuelve True si era nueva."""
     ts = now()
     job_id = new_id()
     points, detail = _score_columns(score)
-    with db.transaction():
-        cur = db.execute(
+    
+    async with db.transaction():
+        cur = await db.execute(
             """insert into jobs (id, dedupe_key, source, external_id, title, company, country,
                                  location, remote, url, description, posted_at, detected_at,
                                  score, score_detail, raw)
@@ -51,7 +52,7 @@ def insert_job_if_new(db: Database, p: JobPosting, score: Score | None = None) -
         )
         if cur.rowcount == 0:
             return False
-        db.execute(
+        await db.execute(
             "insert into status_history (id, job_id, from_status, to_status, changed_at) "
             "values (?, ?, ?, ?, ?)",
             (new_id(), job_id, None, "encontrada", ts),
@@ -59,41 +60,40 @@ def insert_job_if_new(db: Database, p: JobPosting, score: Score | None = None) -
     return True
 
 
-def change_status(db: Database, job_id: str, new_status: str) -> None:
+async def change_status(db: Database, job_id: str, new_status: str) -> None:
     if new_status not in STATUSES:
         raise ValueError(f"Estado inválido: {new_status!r}. Válidos: {', '.join(STATUSES)}")
-    rows = db.query("select status from jobs where id = ?", (job_id,))
+    rows = await db.query("select status from jobs where id = ?", (job_id,))
     if not rows:
         raise LookupError(f"No existe la oferta {job_id}")
     old = rows[0]["status"]
     if old == new_status:
         return
     ts = now()
-    with db.transaction():
+    async with db.transaction():
         if new_status == "solicitada":
-            # La fecha de postulación se fija una sola vez.
-            db.execute(
+            await db.execute(
                 "update jobs set status = ?, applied_at = coalesce(applied_at, ?) where id = ?",
                 (new_status, ts, job_id),
             )
         else:
-            db.execute("update jobs set status = ? where id = ?", (new_status, job_id))
-        db.execute(
+            await db.execute("update jobs set status = ? where id = ?", (new_status, job_id))
+        await db.execute(
             "insert into status_history (id, job_id, from_status, to_status, changed_at) "
             "values (?, ?, ?, ?, ?)",
             (new_id(), job_id, old, new_status, ts),
         )
 
 
-def resolve_job_id(db: Database, prefix: str) -> str:
+async def resolve_job_id(db: Database, prefix: str) -> str:
     """Permite usar solo el inicio del id en la CLI (basta con que sea único)."""
-    rows = db.query("select id from jobs where id like ?", (prefix + "%",))
+    rows = await db.query("select id from jobs where id like ?", (prefix + "%",))
     if len(rows) == 1:
         return rows[0]["id"]
     raise LookupError(f"El id {prefix!r} coincide con {len(rows)} ofertas")
 
 
-def list_jobs(db: Database, status: str | None = None, limit: int = 50,
+async def list_jobs(db: Database, status: str | None = None, limit: int = 50,
               sort: str = "score", min_score: float = 0) -> list[dict]:
     """sort='score' (mejores primero) o 'recent' (las últimas detectadas primero)."""
     sql = "select id, status, score, title, company, country, source, posted_at from jobs"
@@ -109,34 +109,34 @@ def list_jobs(db: Database, status: str | None = None, limit: int = 50,
     sql += " order by score desc, detected_at desc" if sort == "score" else " order by detected_at desc"
     sql += " limit ?"
     params.append(limit)
-    return db.query(sql, tuple(params))
+    return await db.query(sql, tuple(params))
 
 
-def get_job(db: Database, job_id: str) -> dict:
-    rows = db.query("select * from jobs where id = ?", (job_id,))
+async def get_job(db: Database, job_id: str) -> dict:
+    rows = await db.query("select * from jobs where id = ?", (job_id,))
     if not rows:
         raise LookupError(f"No existe la oferta {job_id}")
     return rows[0]
 
 
-def rerank_all(db: Database, profile: RankingProfile) -> int:
+async def rerank_all(db: Database, profile: RankingProfile) -> int:
     """Recalcula el puntaje de todas las ofertas guardadas. Devuelve cuántas actualizó."""
-    rows = db.query("select id, source, title, url, description, posted_at from jobs")
+    rows = await db.query("select id, source, title, url, description, posted_at from jobs")
     updates = []
     for row in rows:
         posting = JobPosting(source=row["source"], title=row["title"], url=row["url"],
                              description=row["description"], posted_at=_to_datetime(row["posted_at"]))
         points, detail = _score_columns(profile.rank(posting))
         updates.append((points, detail, row["id"]))
-    with db.transaction():
-        db.executemany("update jobs set score = ?, score_detail = ? where id = ?", updates)
+    async with db.transaction():
+        await db.executemany("update jobs set score = ?, score_detail = ? where id = ?", updates)
     return len(updates)
 
 
-def record_run(db: Database, source: str, started: datetime, finished: datetime,
+async def record_run(db: Database, source: str, started: datetime, finished: datetime,
                found: int, inserted: int, error: str | None) -> None:
-    with db.transaction():
-        db.execute(
+    async with db.transaction():
+        await db.execute(
             "insert into runs (id, source, started_at, finished_at, found, inserted, error) "
             "values (?, ?, ?, ?, ?, ?, ?)",
             (new_id(), source, started, finished, found, inserted, error),
