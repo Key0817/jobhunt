@@ -4,7 +4,7 @@ on:
   schedule:
     # 12:00 y 23:00 UTC = 6:00 am y 5:00 pm en Costa Rica (UTC-6)
     - cron: "0 12,23 * * *"
-  workflow_dispatch: {}   # botón "Run workflow" para probar a mano
+  workflow_dispatch: {} 
 
 permissions:
   contents: read

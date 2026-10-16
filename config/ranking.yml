@@ -1,0 +1,180 @@
+# Tu perfil para ordenar las ofertas (Fase 2).
+# Edítalo cuando quieras y recalcula con:  python -m jobbot rank
+# Los términos no distinguen mayúsculas, tildes ni guiones: "Front-End" y "frontend" cuentan igual.
+
+level: junior            
+english: intermediate    
+
+# Tipos de puesto que buscas. Si algún término aparece en el TÍTULO, la oferta suma hasta 40 puntos
+# (multiplicados por el peso de la familia: baja un peso si quieres priorizar otras).
+families:
+  desarrollo:
+    weight: 1.0
+    title_terms:
+      - desarrollador
+      - desarrolladora
+      - developer
+      - programador
+      - programadora
+      - software engineer
+      - ingeniero de software
+      - software developer
+      - web developer
+      - full stack
+      - fullstack
+      - frontend
+      - front end
+      - backend
+      - back end
+      - next.js
+      - nextjs
+      - react
+      - typescript
+      - javascript
+      - node.js
+      - express.js
+      - .net
+      - asp.net
+      - c#
+      - java
+      - php
+      - application developer
+      - analista programador
+      - analista de sistemas
+      - desarrollador de aplicaciones
+  infraestructura:
+    weight: 1.0
+    title_terms:
+      - devops
+      - junior devops
+      - cloud engineer
+      - cloud developer
+      - cloud support
+      - platform engineer
+      - ci/cd
+      - github actions
+      - administrador de sistemas
+      - system administrator
+      - systems administrator
+      - sysadmin
+      - network engineer
+      - administrador de redes
+      - qa
+      - quality assurance
+      - tester
+      - test automation
+      - analista de calidad
+  soporte:
+    weight: 1.0
+    title_terms:
+      - soporte técnico
+      - soporte
+      - technical support
+      - it support
+      - support technician
+      - help desk
+      - helpdesk
+      - service desk
+      - mesa de ayuda
+      - técnico en informática
+      - técnico de soporte
+      - it technician
+      - desktop support
+      - application support
+      - software support
+      - l1
+      - l2
+  datos:
+    weight: 1.0
+    title_terms:
+      - sql developer
+      - database developer
+      - analista de datos
+      - data analyst
+      - data engineer
+      - ingeniero de datos
+      - dba
+      - database administrator
+      - administrador de bases de datos
+      - database
+      - sql server
+      - postgresql
+      - mysql
+      - business intelligence
+      - power bi
+      - etl
+      - analytics
+
+# Mi stack: término -> peso (1 = lo conoces poco, 2 = lo usas, 3 = tu fuerte).
+# Suma más si aparece en el título y menos si aparece en la descripción (máximo 30 puntos en total).
+skills:
+  typescript: 3
+  react: 3
+  next.js: 3
+  nextjs: 3
+  javascript: 3
+  sql: 3
+  c#: 2
+  .net: 2
+  asp.net core: 2
+  entity framework: 2
+  postgresql: 3
+  supabase: 3
+  sql server: 3
+  git: 2
+  github: 2
+  github actions: 2
+  apis rest: 2
+  node.js: 2
+  express.js: 2
+  html5: 3
+  html: 3
+  css3: 3
+  css: 3
+  java: 2
+  python: 3
+  mysql: 3
+  vercel: 2
+  azure: 1
+  google cloud platform: 1
+  gcp: 1
+  firebase: 3
+  mongodb: 2
+  firestore: 3
+  react native: 2
+  vue.js: 2
+  php: 2
+  scrum: 2
+  clean code: 1
+  autenticación: 2
+  autorización: 2
+  rls: 2
+  ci/cd: 2
+  soporte técnico: 3
+  mantenimiento de equipos: 3
+  resolución de incidencias: 3
+
+# Si aparece en el TÍTULO, resta 50 puntos: áreas que no son de TI.
+avoid_title:
+  - ventas
+  - sales
+  - marketing
+  - seo
+  - reclutador
+  - reclutamiento
+  - recruiter
+  - talent
+  - recursos humanos
+  - disenador
+  - designer
+  - contador
+  - contabilidad
+  - abogado
+  - customer success
+  - account executive
+  - sdr
+  - community manager
+  - growth
+  - gtm
+  - business development
+  - copywriter
