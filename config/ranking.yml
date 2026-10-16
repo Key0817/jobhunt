@@ -59,6 +59,10 @@ families:
       - sysadmin
       - network engineer
       - administrador de redes
+
+  qa_testing:
+    weight: 0.45
+    title_terms:
       - qa
       - quality assurance
       - tester
