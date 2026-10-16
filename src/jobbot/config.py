@@ -6,6 +6,7 @@ from pathlib import Path
 import yaml
 
 from .models import SearchQuery
+from .ranking import RankingProfile
 
 
 def load_dotenv(path: str = ".env") -> None:
@@ -37,3 +38,11 @@ def load_search_config(path: str | None = None) -> tuple[SearchQuery, list[str]]
         residence_country=str(residence or "").upper(),
     )
     return query, list(data.get("sources", []))
+
+
+def load_ranking_profile(interests=()) -> RankingProfile | None:
+    """Carga config/ranking.yml (o la ruta de JOBBOT_RANKING). None si el archivo no existe."""
+    path = Path(os.environ.get("JOBBOT_RANKING", "config/ranking.yml"))
+    if not path.exists():
+        return None
+    return RankingProfile.load(path, interests)

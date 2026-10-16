@@ -1,3 +1,6 @@
+-- Esquema portable: corre igual en PostgreSQL (Supabase) y en SQLite (desarrollo y tests).
+-- Los ids y las fechas se generan en Python, por eso no hay defaults propios de Postgres.
+
 create table if not exists jobs (
     id           text primary key,
     dedupe_key   text not null unique,
@@ -13,6 +16,7 @@ create table if not exists jobs (
     posted_at    timestamptz,
     detected_at  timestamptz not null,
     score        real not null default 0,
+    score_detail text not null default '{}',
     status       text not null default 'encontrada'
         check (status in ('encontrada', 'aplicable', 'cv_listo', 'solicitada',
                           'entrevista', 'oferta', 'rechazada', 'descartada')),
