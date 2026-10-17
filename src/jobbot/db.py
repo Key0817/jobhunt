@@ -7,10 +7,13 @@ from pathlib import Path
 
 HERE = Path(__file__).parent
 
+# Columnas agregadas después de la primera versión del esquema: (tabla, columna, definición).
+# create table if not exists no modifica tablas que ya existen, así que se agregan aquí.
 MIGRATIONS = [
     ("jobs", "score_detail", "text not null default '{}'"),
 ]
 
+# sqlite3 ya no recomienda su adaptador de datetime por defecto (Python 3.12+).
 sqlite3.register_adapter(datetime, lambda d: d.isoformat())
 
 
@@ -24,7 +27,8 @@ class Database:
         self.is_sqlite = url.startswith("sqlite:")
         if self.is_sqlite:
             path = url.removeprefix("sqlite:///").removeprefix("sqlite://") or ":memory:"
-            self.conn = sqlite3.connect(path)
+            # check_same_thread=False: FastAPI atiende cada petición en un hilo distinto.
+            self.conn = sqlite3.connect(path, check_same_thread=False)
             self.conn.row_factory = sqlite3.Row
             self.conn.execute("pragma foreign_keys = on")
         else:
