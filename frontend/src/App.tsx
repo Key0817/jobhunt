@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react';
-import { 
-  LayoutDashboard, 
-  Briefcase, 
-  Beaker, 
-  Settings, 
-  User, 
-  PanelLeftClose, 
-  PanelLeftOpen 
+import {
+  LayoutDashboard,
+  Briefcase,
+  Beaker,
+  Settings,
+  User,
+  PanelLeftClose,
+  PanelLeftOpen
 } from 'lucide-react';
 import type { Job, JobStatus } from './types';
 
@@ -20,20 +20,20 @@ const Sidebar = ({ isOpen, toggleSidebar }: { isOpen: boolean; toggleSidebar: ()
           JobHunt
         </div>
       )}
-      <button 
-        onClick={toggleSidebar} 
+      <button
+        onClick={toggleSidebar}
         className="p-1 hover:bg-dark-800 rounded-md text-gray-400 hover:text-white transition"
       >
         {isOpen ? <PanelLeftClose size={20} /> : <PanelLeftOpen size={20} />}
       </button>
     </div>
-    
+
     <nav className="flex flex-col gap-2 text-sm text-gray-400 mt-4">
       {isOpen && <div className="text-xs font-semibold mb-1 px-2 text-gray-500">PRINCIPAL</div>}
       <a href="#" className={`flex items-center gap-3 px-3 py-2 rounded-md font-medium transition ${isOpen ? 'bg-white text-black' : 'hover:bg-dark-800 justify-center'}`} title="Resumen">
         <LayoutDashboard size={18} /> {isOpen && <span>Resumen</span>}
       </a>
-      
+
       {isOpen && <div className="text-xs font-semibold mt-4 mb-1 px-2 text-gray-500">GESTIÓN</div>}
       <a href="#" className={`flex items-center gap-3 px-3 py-2 hover:bg-dark-800 rounded-md transition ${!isOpen && 'justify-center'}`} title="Mi Currículum">
         <User size={18} /> {isOpen && <span>Mi Currículum</span>}
@@ -44,7 +44,7 @@ const Sidebar = ({ isOpen, toggleSidebar }: { isOpen: boolean; toggleSidebar: ()
       <a href="#" className={`flex items-center gap-3 px-3 py-2 hover:bg-dark-800 rounded-md transition ${!isOpen && 'justify-center'}`} title="Pruebas">
         <Beaker size={18} /> {isOpen && <span>Pruebas</span>}
       </a>
-      
+
       {isOpen && <div className="text-xs font-semibold mt-4 mb-1 px-2 text-gray-500">SISTEMA</div>}
       <a href="#" className={`flex items-center gap-3 px-3 py-2 hover:bg-dark-800 rounded-md transition ${!isOpen && 'justify-center'}`} title="Ajustes">
         <Settings size={18} /> {isOpen && <span>Ajustes</span>}
@@ -64,29 +64,46 @@ const JobCard = ({ job }: { job: Job }) => (
 // Componente Principal
 function App() {
   const [jobs, setJobs] = useState<Job[]>([]);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true); 
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
   useEffect(() => {
-    const mockData: Job[] = [
-      { id: '1', title: 'Desarrollador Backend', company: 'Nubank', status: 'Guardada', score: 90 },
-      { id: '2', title: 'Frontend React', company: 'Vercel', status: 'Guardada', score: 85 },
-      { id: '3', title: 'Full-stack Engineer', company: 'Shopify', status: 'Aplicada', score: 88 },
-      { id: '4', title: 'Desarrollador Node.js', company: 'Red Hat', status: 'Entrevista', score: 92 },
-      { id: '5', title: 'Ingeniero de software', company: 'Datadog', status: 'Oferta', score: 95 },
-      { id: '6', title: 'Ingeniero DevOps', company: 'OnPrem Inc.', status: 'Rechazada', score: 70 },
-    ];
-    setJobs(mockData);
+    const fetchJobs = async () => {
+      try {
+        // Asegúrate de que esta URL coincida con el endpoint de tu FastAPI
+        const response = await fetch('http://localhost:8000/api/jobs');
+
+        if (!response.ok) {
+          throw new Error(`Error en la petición: ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        const formattedJobs: Job[] = data.map((job: any) => ({
+          id: job.id,
+          title: job.title,
+          company: job.company,
+          status: job.status ? (job.status.charAt(0).toUpperCase() + job.status.slice(1)) as JobStatus : 'Guardada',
+          score: job.score || 0
+        }));
+
+        setJobs(formattedJobs);
+      } catch (error) {
+        console.error("Error obteniendo los trabajos de la API:", error);
+      }
+    };
+
+    fetchJobs();
   }, []);
 
   const columns: JobStatus[] = ['Guardada', 'Aplicada', 'Entrevista', 'Oferta', 'Rechazada'];
 
   return (
-<div className="min-h-screen bg-dark-900 text-white font-sans overflow-x-hidden">
+    <div className="min-h-screen bg-dark-900 text-white font-sans overflow-x-hidden">
       <Sidebar isOpen={isSidebarOpen} toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} />
-      
+
       {/* Se quitó "flex-1" de main */}
       <main className={`${isSidebarOpen ? 'ml-64' : 'ml-20'} p-8 transition-all duration-300`}>
-        
+
         {/* Tarjetas de Resumen (KPIs) */}
         <div className="grid grid-cols-4 gap-4 mb-8">
           {[
