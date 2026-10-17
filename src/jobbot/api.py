@@ -1,5 +1,4 @@
-"""API del dashboard. Se ejecuta con:  uvicorn jobbot.api:app --reload --port 8000
-(desde la raíz del proyecto, para que se lea el .env)."""
+"""API del dashboard. Inicia el API y el frontend con `python -m jobbot serve`."""
 from collections.abc import Iterator
 from contextlib import asynccontextmanager
 from typing import Optional

@@ -3,7 +3,13 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import shutil
+import subprocess
 import sys
+import time
+import urllib.request
+import webbrowser
+from pathlib import Path
 
 from . import repo
 from .config import database_url, load_dotenv, load_ranking_profile, load_search_config
@@ -13,6 +19,93 @@ from .pipeline import collect
 from .sources import build_sources
 
 log = logging.getLogger("jobbot")
+
+
+def _wait_for_service(url: str, process: subprocess.Popen[bytes], name: str) -> None:
+    deadline = time.monotonic() + 30
+    last_error: OSError | None = None
+    while time.monotonic() < deadline:
+        return_code = process.poll()
+        if return_code is not None:
+            raise RuntimeError(f"{name} terminó durante el inicio (código {return_code}).")
+        try:
+            with urllib.request.urlopen(url, timeout=1):
+                return
+        except OSError as exc:
+            last_error = exc
+            time.sleep(0.2)
+    raise RuntimeError(
+        f"{name} no respondió en 30 segundos ({last_error})."
+    ) from last_error
+
+
+def _stop_process(process: subprocess.Popen[bytes]) -> None:
+    if process.poll() is not None:
+        return
+    process.terminate()
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
+
+
+def _serve() -> int:
+    project_root = Path(__file__).resolve().parents[2]
+    frontend_dir = project_root / "frontend"
+    vite_cli = frontend_dir / "node_modules" / "vite" / "bin" / "vite.js"
+    node = shutil.which("node")
+
+    if node is None:
+        raise RuntimeError("No se encontró Node.js. Instala Node.js para ejecutar el frontend.")
+    if not vite_cli.is_file():
+        raise RuntimeError(
+            "No se encontraron las dependencias del frontend. Ejecuta `npm ci --prefix frontend`."
+        )
+
+    api_url = "http://127.0.0.1:8000"
+    frontend_url = "http://127.0.0.1:5173"
+    processes: list[subprocess.Popen[bytes]] = []
+    try:
+        api_process = subprocess.Popen(
+            [
+                sys.executable,
+                "-m",
+                "uvicorn",
+                "jobbot.api:app",
+                "--host",
+                "127.0.0.1",
+                "--port",
+                "8000",
+            ],
+            cwd=project_root,
+        )
+        processes.append(api_process)
+        _wait_for_service(f"{api_url}/openapi.json", api_process, "La API")
+
+        frontend_process = subprocess.Popen(
+            [node, str(vite_cli), "--host", "127.0.0.1", "--port", "5173", "--strictPort"],
+            cwd=frontend_dir,
+        )
+        processes.append(frontend_process)
+        _wait_for_service(frontend_url, frontend_process, "El frontend")
+
+        print(f"JobHunt está disponible en {frontend_url}", flush=True)
+        if not webbrowser.open_new_tab(frontend_url):
+            print(f"No se pudo abrir el navegador automáticamente. Visita {frontend_url}.")
+
+        while True:
+            for process, name in ((api_process, "La API"), (frontend_process, "El frontend")):
+                return_code = process.poll()
+                if return_code is not None:
+                    raise RuntimeError(f"{name} terminó inesperadamente (código {return_code}).")
+            time.sleep(0.5)
+    except KeyboardInterrupt:
+        print("\nCerrando JobHunt...", flush=True)
+        return 0
+    finally:
+        for process in reversed(processes):
+            _stop_process(process)
 
 
 def _score_summary(db: Database) -> str:
@@ -44,6 +137,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="jobbot")
     sub = parser.add_subparsers(dest="cmd", required=True)
     sub.add_parser("init-db", help="Crea las tablas (y activa RLS si es Postgres)")
+    sub.add_parser("serve", help="Inicia el API y el frontend, y abre el navegador")
     c = sub.add_parser("collect", help="Busca ofertas en las fuentes configuradas")
     c.add_argument("--sources", help="Lista separada por comas; por defecto, config/search.yml")
     sub.add_parser("rank", help="Recalcula el puntaje de todas las ofertas con config/ranking.yml")
@@ -66,6 +160,13 @@ def main(argv: list[str] | None = None) -> int:
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     load_dotenv()
+    if args.cmd == "serve":
+        try:
+            return _serve()
+        except RuntimeError as exc:
+            print(f"Error iniciando JobHunt: {exc}", file=sys.stderr)
+            return 1
+
     db = Database(database_url())
     try:
         if args.cmd == "init-db":
