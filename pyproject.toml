@@ -17,3 +17,6 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 jobbot = ["*.sql"]
+
+[project.optional-dependencies]
+api = ["fastapi", "uvicorn[standard]"]
