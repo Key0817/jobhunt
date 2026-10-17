@@ -30,9 +30,11 @@ export interface Job {
   status: JobStatus;
   score: number;
   url: string;
+  description: string | null;
   source: string;
   country: string | null;
   location: string | null;
+  remote: boolean;
   posted_at: string | null;
   applied_at: string | null;
 }

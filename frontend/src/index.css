@@ -4,3 +4,138 @@ body {
   background-color: #0F0F11;
   color: #FFFFFF;
 }
+
+.status-select {
+  appearance: none;
+  color-scheme: dark;
+  background-color: #0F0F11;
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+  background-repeat: no-repeat;
+  background-position: right 0.65rem center;
+  background-size: 0.9rem;
+  border: 1px solid #232325;
+  border-radius: 0.5rem;
+  padding: 0.375rem 2rem 0.375rem 0.75rem;
+  color: #d1d5db;
+  font-size: 0.75rem;
+  line-height: 1.25rem;
+  cursor: pointer;
+  transition: border-color 150ms ease, background-color 150ms ease;
+}
+
+.status-select:hover {
+  border-color: #4b5563;
+  background-color: #161618;
+}
+
+.status-select:focus-visible {
+  outline: 2px solid rgb(59 130 246 / 35%);
+  outline-offset: 1px;
+  border-color: #3b82f6;
+}
+
+.offers-filter-label {
+  color: #9ca3af;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.025em;
+}
+
+.offers-filter-select {
+  appearance: none;
+  color-scheme: dark;
+  width: 100%;
+  min-height: 2.75rem;
+  border: 1px solid #232325;
+  border-radius: 0.625rem;
+  background-color: #0f0f11;
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+  background-repeat: no-repeat;
+  background-position: right 0.875rem center;
+  background-size: 1rem;
+  padding: 0.625rem 2.5rem 0.625rem 0.875rem;
+  color: #d1d5db;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  cursor: pointer;
+  transition: border-color 150ms ease, background-color 150ms ease;
+}
+
+.offers-filter-select:hover {
+  border-color: #4b5563;
+  background-color: #161618;
+}
+
+.offers-filter-select:focus-visible {
+  outline: 2px solid rgb(59 130 246 / 35%);
+  outline-offset: 1px;
+  border-color: #3b82f6;
+}
+
+.offers-filter-range {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 2.75rem;
+  border: 1px solid #232325;
+  border-radius: 0.625rem;
+  background-color: #0f0f11;
+  padding: 0 0.75rem;
+}
+
+.offers-filter-slider {
+  width: 100%;
+  height: 1.25rem;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.offers-filter-slider::-webkit-slider-runnable-track {
+  height: 0.375rem;
+  border-radius: 9999px;
+  background: #232325;
+}
+
+.offers-filter-slider::-moz-range-track {
+  height: 0.375rem;
+  border-radius: 9999px;
+  background: #232325;
+}
+
+.offers-filter-slider::-webkit-slider-thumb {
+  width: 1rem;
+  height: 1rem;
+  appearance: none;
+  margin-top: -0.3125rem;
+  border: 3px solid #161618;
+  border-radius: 50%;
+  background: #3b82f6;
+  box-shadow: 0 0 0 1px rgb(59 130 246 / 45%);
+}
+
+.offers-filter-slider::-moz-range-thumb {
+  width: 0.75rem;
+  height: 0.75rem;
+  border: 3px solid #161618;
+  border-radius: 50%;
+  background: #3b82f6;
+  box-shadow: 0 0 0 1px rgb(59 130 246 / 45%);
+}
+
+.offers-filter-slider:focus-visible {
+  outline: 2px solid rgb(59 130 246 / 55%);
+  outline-offset: 3px;
+  border-radius: 9999px;
+}
+
+.offers-filter-value {
+  min-width: 2rem;
+  border-radius: 0.375rem;
+  background-color: #232325;
+  padding: 0.25rem 0.375rem;
+  color: #d1d5db;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-align: center;
+}

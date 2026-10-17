@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   LayoutDashboard,
   Briefcase,
-  Beaker,
   Settings,
   User,
   PanelLeftClose,
@@ -11,12 +10,14 @@ import {
 } from 'lucide-react';
 import { STATUSES, STATUS_LABELS } from './types';
 import type { Job, JobStatus, Stats } from './types';
+import JobDetailPage from './JobDetailPage'; // <-- Importamos la nueva página
 
 const API_URL = 'http://localhost:8000';
 const CARDS_PER_COLUMN = 25; 
+type ViewType = 'dashboard' | 'offers' | 'detail';
 
-// Componente de la Barra Lateral
-const Sidebar = ({ isOpen, toggleSidebar }: { isOpen: boolean; toggleSidebar: () => void }) => (
+// Componente de la Barra Lateral modificado para recibir y cambiar la vista
+const Sidebar = ({isOpen, toggleSidebar, currentView, setView }: { isOpen: boolean; toggleSidebar: () => void; currentView: ViewType; setView: (view: ViewType) => void; }) => (
   <aside className={`${isOpen ? 'w-64' : 'w-20'} border-r border-dark-700 h-screen p-4 flex flex-col gap-6 fixed transition-all duration-300 z-20 bg-dark-900`}>
     <div className={`flex items-center ${isOpen ? 'justify-between' : 'justify-center'} px-2`}>
       {isOpen && (
@@ -35,30 +36,27 @@ const Sidebar = ({ isOpen, toggleSidebar }: { isOpen: boolean; toggleSidebar: ()
 
     <nav className="flex flex-col gap-2 text-sm text-gray-400 mt-4">
       {isOpen && <div className="text-xs font-semibold mb-1 px-2 text-gray-500">PRINCIPAL</div>}
-      <a href="#" className={`flex items-center gap-3 px-3 py-2 rounded-md font-medium transition ${isOpen ? 'bg-white text-black' : 'hover:bg-dark-800 justify-center'}`} title="Resumen">
+      <button onClick={() => setView('dashboard')} className={`w-full flex items-center gap-3 px-3 py-2 rounded-md font-medium transition ${currentView === 'dashboard' ? 'bg-white text-black' : 'hover:bg-dark-800'} ${!isOpen && 'justify-center'}`} title="Resumen">
         <LayoutDashboard size={18} /> {isOpen && <span>Resumen</span>}
-      </a>
+      </button>
 
       {isOpen && <div className="text-xs font-semibold mt-4 mb-1 px-2 text-gray-500">GESTIÓN</div>}
-      <a href="#" className={`flex items-center gap-3 px-3 py-2 hover:bg-dark-800 rounded-md transition ${!isOpen && 'justify-center'}`} title="Mi Currículum">
+      <button className={`w-full flex items-center gap-3 px-3 py-2 hover:bg-dark-800 rounded-md transition ${!isOpen && 'justify-center'}`} title="Mi Currículum">
         <User size={18} /> {isOpen && <span>Mi Currículum</span>}
-      </a>
-      <a href="#" className={`flex items-center gap-3 px-3 py-2 hover:bg-dark-800 rounded-md transition ${!isOpen && 'justify-center'}`} title="Ofertas">
+      </button>
+      <button onClick={() => setView('offers')} className={`w-full flex items-center gap-3 px-3 py-2 rounded-md transition ${currentView === 'offers' ? 'bg-white text-black' : 'hover:bg-dark-800'} ${!isOpen && 'justify-center'}`} title="Ofertas">
         <Briefcase size={18} /> {isOpen && <span>Ofertas</span>}
-      </a>
-      <a href="#" className={`flex items-center gap-3 px-3 py-2 hover:bg-dark-800 rounded-md transition ${!isOpen && 'justify-center'}`} title="Pruebas">
-        <Beaker size={18} /> {isOpen && <span>Pruebas</span>}
-      </a>
+      </button>
+
 
       {isOpen && <div className="text-xs font-semibold mt-4 mb-1 px-2 text-gray-500">SISTEMA</div>}
-      <a href="#" className={`flex items-center gap-3 px-3 py-2 hover:bg-dark-800 rounded-md transition ${!isOpen && 'justify-center'}`} title="Ajustes">
+      <button className={`w-full flex items-center gap-3 px-3 py-2 hover:bg-dark-800 rounded-md transition ${!isOpen && 'justify-center'}`} title="Ajustes">
         <Settings size={18} /> {isOpen && <span>Ajustes</span>}
-      </a>
+      </button>
     </nav>
   </aside>
 );
 
-// Insignia con el puntaje: verde si encaja bien, ámbar si es regular, gris si encaja poco
 const ScoreBadge = ({ score }: { score: number }) => {
   const color =
     score >= 70
@@ -69,27 +67,35 @@ const ScoreBadge = ({ score }: { score: number }) => {
   return <span className={`${color} text-xs font-semibold px-2 py-0.5 rounded-full`}>{Math.round(score)}</span>;
 };
 
-const JobCard = ({ job, onMove }: { job: Job; onMove: (id: string, status: JobStatus) => void }) => (
-  <div className="bg-dark-800 border border-dark-700 p-4 rounded-lg mb-3 hover:border-gray-500 transition">
-    <div className="flex items-start justify-between gap-2">
-      <h4 className="font-semibold text-sm">{job.title}</h4>
-      <ScoreBadge score={job.score} />
+// Se añadió onViewDetail al JobCard
+const JobCard = ({ job, onMove, onViewDetail }: { job: Job; onMove: (id: string, status: JobStatus) => void; onViewDetail: (id: string) => void }) => (
+  <div className="bg-dark-800 border border-dark-700 p-4 rounded-lg flex flex-col justify-between h-full hover:border-gray-500 transition">
+    <div>
+      <div className="flex items-start justify-between gap-2 mb-2">
+        <h4 
+          onClick={() => onViewDetail(job.id)}
+          className="font-semibold text-sm cursor-pointer hover:text-blue-400 hover:underline line-clamp-2"
+        >
+          {job.title}
+        </h4>
+        <ScoreBadge score={job.score} />
+      </div>
+      <p className="text-xs text-gray-400 mt-1">{job.company || 'Empresa no indicada'}</p>
+      {job.location && <p className="text-xs text-gray-500 mt-0.5">{job.location}</p>}
     </div>
-    <p className="text-xs text-gray-400 mt-1">{job.company || 'Empresa no indicada'}</p>
-    {job.location && <p className="text-xs text-gray-500 mt-0.5">{job.location}</p>}
-    <div className="flex items-center justify-between gap-2 mt-3">
+    <div className="flex items-center justify-between gap-2 mt-4 pt-3 border-t border-dark-700">
       <a
         href={job.url}
         target="_blank"
         rel="noopener noreferrer"
         className="flex items-center gap-1 text-xs text-gray-400 hover:text-white transition"
       >
-        <ExternalLink size={12} /> Abrir oferta
+        <ExternalLink size={12} /> Abrir
       </a>
       <select
         value={job.status}
         onChange={(e) => onMove(job.id, e.target.value as JobStatus)}
-        className="bg-dark-900 border border-dark-700 text-xs rounded px-2 py-1 text-gray-300"
+        className="status-select"
         aria-label="Mover a otro estado"
       >
         {STATUSES.map((s) => (
@@ -110,7 +116,6 @@ const StatCard = ({ label, value, hint }: { label: string; value: number | strin
   </div>
 );
 
-// Barras simples (sin librería de gráficos): postulaciones por semana
 const WeeklyChart = ({ data }: { data: Stats['weekly_applications'] }) => {
   const max = Math.max(1, ...data.map((d) => d.count));
   return (
@@ -133,6 +138,121 @@ const WeeklyChart = ({ data }: { data: Stats['weekly_applications'] }) => {
   );
 };
 
+// Componente para la página de ofertas en Grid
+const OffersPage = ({ jobs, onMove, onViewDetail }: { jobs: Job[]; onMove: (id: string, status: JobStatus) => void; onViewDetail: (id: string) => void }) => {
+  const [filterStatus, setFilterStatus] = useState<string>('Todos');
+  const [filterMinScore, setFilterMinScore] = useState<number>(0);
+  const [filterModality, setFilterModality] = useState<string>('Todas');
+  const [filterDate, setFilterDate] = useState<string>('Todas');
+
+  // Lógica de filtrado en cliente
+  const filteredJobs = jobs.filter(job => {
+    // 1. Filtro por estado
+    if (filterStatus !== 'Todos' && job.status !== filterStatus) return false;
+    
+    // 2. Filtro por puntaje
+    if (job.score < filterMinScore) return false;
+    
+    // 3. Filtro por modalidad (Asumiendo que remoto es un booleano en tu BD, o se infiere por "remote")
+    // Nota: Si tu API lo devuelve como texto en 'location', puedes ajustar la condición a job.location?.includes('Remoto')
+    if (filterModality === 'Remoto' && job.remote !== true) return false;
+    if (filterModality === 'Presencial' && job.remote === true) return false;
+
+    // 4. Filtro por fecha (Asumiendo que posted_at es un string ISO)
+    if (filterDate !== 'Todas' && job.posted_at) {
+      const jobDate = new Date(job.posted_at);
+      const now = new Date();
+      const diffDays = (now.getTime() - jobDate.getTime()) / (1000 * 3600 * 24);
+      
+      if (filterDate === 'Hoy' && diffDays > 1) return false;
+      if (filterDate === 'Últimos 7 días' && diffDays > 7) return false;
+      if (filterDate === 'Último mes' && diffDays > 30) return false;
+    }
+
+    return true;
+  }).sort((a, b) => b.score - a.score);
+
+  return (
+    <div>
+      <h2 className="text-2xl font-bold mb-6">Todas las Ofertas</h2>
+      
+      {/* Barra de Filtros */}
+      <div className="bg-dark-800 border border-dark-700 p-5 rounded-xl mb-6 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5 items-end">
+        <div className="flex flex-col gap-2">
+          <label className="offers-filter-label">Estado</label>
+          <select 
+            value={filterStatus} 
+            onChange={e => setFilterStatus(e.target.value)}
+            className="offers-filter-select"
+            aria-label="Filtrar por estado"
+          >
+            <option value="Todos">Todos</option>
+            {STATUSES.map(s => <option key={s} value={s}>{STATUS_LABELS ? STATUS_LABELS[s] : s}</option>)}
+          </select>
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <label className="offers-filter-label" htmlFor="minimum-score">Puntaje mínimo</label>
+          <div className="offers-filter-range">
+            <input 
+              id="minimum-score"
+              type="range" 
+              min="0" max="100" step="5"
+              value={filterMinScore} 
+              onChange={e => setFilterMinScore(Number(e.target.value))}
+              className="offers-filter-slider"
+            />
+            <span className="offers-filter-value">{filterMinScore}</span>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <label className="offers-filter-label">Modalidad</label>
+          <select 
+            value={filterModality} 
+            onChange={e => setFilterModality(e.target.value)}
+            className="offers-filter-select"
+            aria-label="Filtrar por modalidad"
+          >
+            <option value="Todas">Cualquier modalidad</option>
+            <option value="Remoto">Remoto</option>
+            <option value="Presencial">Presencial / Híbrido</option>
+          </select>
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <label className="offers-filter-label">Publicación</label>
+          <select 
+            value={filterDate} 
+            onChange={e => setFilterDate(e.target.value)}
+            className="offers-filter-select"
+            aria-label="Filtrar por fecha de publicación"
+          >
+            <option value="Todas">Cualquier fecha</option>
+            <option value="Hoy">Hoy</option>
+            <option value="Últimos 7 días">Últimos 7 días</option>
+            <option value="Último mes">Último mes</option>
+          </select>
+        </div>
+      </div>
+
+      {/* Grid de Tarjetas */}
+      <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-5 gap-4">
+        {filteredJobs.length > 0 ? (
+          filteredJobs.map(job => (
+            <JobCard key={job.id} job={job} onMove={onMove} onViewDetail={onViewDetail} />
+          ))
+        ) : (
+          <div className="col-span-full py-16 flex flex-col items-center justify-center border-2 border-dashed border-dark-700 rounded-xl text-gray-500">
+            <p className="text-lg mb-1">No se encontraron ofertas</p>
+            <p className="text-sm">Prueba ajustando los filtros de búsqueda.</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 // Componente Principal
 function App() {
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -140,6 +260,10 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  
+  // Estados para controlar la navegación
+  const [currentView, setCurrentView] = useState<'dashboard' | 'offers' | 'detail'>('dashboard');
+  const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
     try {
@@ -165,7 +289,6 @@ function App() {
     void loadData();
   }, [loadData]);
 
-  // Cambia el estado de una oferta y vuelve a cargar, para que las estadísticas se actualicen
   const moveJob = async (id: string, status: JobStatus) => {
     try {
       const response = await fetch(`${API_URL}/api/jobs/${id}/status`, {
@@ -177,23 +300,37 @@ function App() {
         throw new Error(`La API respondió ${response.status}`);
       }
       await loadData();
+      return true;
     } catch (e) {
       console.error('Error cambiando el estado:', e);
       setError('No se pudo cambiar el estado de la oferta.');
+      return false;
     }
   };
 
-  return (
-    <div className="min-h-screen bg-dark-900 text-white font-sans overflow-x-hidden">
-      <Sidebar isOpen={isSidebarOpen} toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} />
+  const handleViewDetail = (id: string) => {
+    setSelectedJobId(id);
+    setCurrentView('detail');
+  };
 
-      <main className={`${isSidebarOpen ? 'ml-64' : 'ml-20'} p-8 transition-all duration-300`}>
-        {error && (
-          <div className="bg-red-500/10 border border-red-500/30 text-red-300 text-sm rounded-lg px-4 py-3 mb-6">
-            {error}
-          </div>
-        )}
+  // Renderizado dinámico de la vista central
+  const renderView = () => {
+    if (currentView === 'detail' && selectedJobId) {
+      return (
+        <JobDetailPage 
+          jobId={selectedJobId} 
+          onBack={() => setCurrentView('offers')} 
+          onMove={moveJob}
+        />
+      );
+    }
+    
+    if (currentView === 'offers') {
+      return <OffersPage jobs={jobs} onMove={moveJob} onViewDetail={handleViewDetail} />;
+    }
 
+    return (
+      <>
         {/* Tarjetas de resumen (datos reales) */}
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
           <StatCard label="Ofertas" value={stats?.total_jobs ?? '-'} />
@@ -207,7 +344,7 @@ function App() {
 
         {loading && <p className="text-sm text-gray-400 mb-4">Cargando ofertas…</p>}
 
-        {/* Tablero Kanban: una columna por estado, con las mejores ofertas arriba */}
+        {/* Tablero Kanban */}
         <div className="flex gap-4 overflow-x-auto pb-4">
           {STATUSES.map((status) => {
             const columnJobs = jobs.filter((j) => j.status === status);
@@ -223,7 +360,7 @@ function App() {
                 </div>
                 <div className="flex flex-col">
                   {columnJobs.slice(0, CARDS_PER_COLUMN).map((job) => (
-                    <JobCard key={job.id} job={job} onMove={moveJob} />
+                    <JobCard key={job.id} job={job} onMove={moveJob} onViewDetail={handleViewDetail} />
                   ))}
                   {hidden > 0 && <p className="text-xs text-gray-500 text-center">+{hidden} más con menor puntaje</p>}
                 </div>
@@ -231,6 +368,28 @@ function App() {
             );
           })}
         </div>
+      </>
+    );
+  };
+
+  return (
+    <div className="min-h-screen bg-dark-900 text-white font-sans overflow-x-hidden">
+      <Sidebar 
+        isOpen={isSidebarOpen} 
+        toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} 
+        currentView={currentView}
+        setView={setCurrentView}
+      />
+
+      <main className={`${isSidebarOpen ? 'ml-64' : 'ml-20'} p-8 transition-all duration-300`}>
+        {error && (
+          <div className="bg-red-500/10 border border-red-500/30 text-red-300 text-sm rounded-lg px-4 py-3 mb-6">
+            {error}
+          </div>
+        )}
+        
+        
+        {renderView()}
       </main>
     </div>
   );
