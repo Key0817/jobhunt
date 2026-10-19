@@ -191,3 +191,71 @@ def record_run(db: Database, source: str, started: datetime, finished: datetime,
             "values (?, ?, ?, ?, ?, ?, ?)",
             (new_id(), source, started, finished, found, inserted, error),
         )
+        
+
+def save_cv_version(
+    db: Database,
+    job_id: str,
+    variant: str,
+    profile_text: str,
+    file_path: str,
+    profile_key: str,
+    model_name: str | None = None,
+) -> dict:
+    """Guarda una versión nueva del CV pendiente de revisión."""
+    # Verifica que la oferta exista antes de guardar el CV.
+    get_job(db, job_id)
+
+    version_id = new_id()
+    created_at = now()
+
+    with db.transaction():
+        db.execute(
+            """
+            insert into cv_versions (
+                id, job_id, variant, profile_text, approved, created_at,
+                profile_key, file_path, status, model_name, approved_at
+            )
+            values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                version_id,
+                job_id,
+                variant,
+                profile_text,
+                False,
+                created_at,
+                profile_key,
+                file_path,
+                "pending_review",
+                model_name,
+                None,
+            ),
+        )
+
+    return get_cv_version(db, version_id)
+
+
+def get_cv_version(db: Database, version_id: str) -> dict:
+    """Recupera una versión del CV por su identificador."""
+    rows = db.query(
+        "select * from cv_versions where id = ?",
+        (version_id,),
+    )
+    if not rows:
+        raise LookupError(f"No existe la versión de CV {version_id}")
+    return rows[0]
+
+
+def list_cv_versions(db: Database, job_id: str) -> list[dict]:
+    """Lista las versiones de CV de una oferta, de la más reciente a la más antigua."""
+    get_job(db, job_id)
+    return db.query(
+        """
+        select *
+        from cv_versions
+        where job_id = ?
+        order by created_at desc
+        """,
+        (job_id,),
+    )

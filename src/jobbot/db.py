@@ -11,6 +11,11 @@ HERE = Path(__file__).parent
 # create table if not exists no modifica tablas que ya existen, así que se agregan aquí.
 MIGRATIONS = [
     ("jobs", "score_detail", "text not null default '{}'"),
+    ("cv_versions", "profile_key", "text not null default ''"),
+    ("cv_versions", "file_path", "text not null default ''"),
+    ("cv_versions", "status", "text not null default 'pending_review'"),
+    ("cv_versions", "model_name", "text"),
+    ("cv_versions", "approved_at", "timestamptz"),
 ]
 
 # sqlite3 ya no recomienda su adaptador de datetime por defecto (Python 3.12+).
