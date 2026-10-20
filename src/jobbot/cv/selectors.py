@@ -1,23 +1,49 @@
 
 def select_profile_key(job_title: str, description: str = "") -> str:
-    text = f"{job_title} {description}".casefold()
+    # El título tiene más peso que las tecnologías mencionadas
+    # en la descripción de la oferta.
+    title = job_title.casefold()
+    description_text = description.casefold()
 
-    if any(term in text for term in (
+    # Primero identificamos el área principal del puesto.
+    if any(term in title for term in (
         "soporte técnico", "technical support", "help desk",
         "helpdesk", "service desk", "it support",
     )):
         return "soporte_it"
 
-    if any(term in text for term in (
+    if any(term in title for term in (
+        "frontend", "front-end", "front end",
+        "front end developer", "ui developer",
+        "front-end software engineer",
+    )):
+        return "frontend"
+
+    if any(term in title for term in (
         ".net", "backend", "back-end", "back end",
         "c#", "asp.net", "entity framework",
     )):
         return "backend_dotnet"
 
-    if any(term in text for term in (
-        "frontend", "front-end", "front end", "ui developer",
+    # Si el título no permite determinar el área, usamos
+    # la descripción como señal secundaria.
+    if any(term in description_text for term in (
+        "soporte técnico", "technical support", "help desk",
+        "helpdesk", "service desk", "it support",
+    )):
+        return "soporte_it"
+
+    if any(term in description_text for term in (
+        "frontend", "front-end", "front end",
+        "ui developer", "react developer",
     )):
         return "frontend"
+
+    if any(term in description_text for term in (
+        ".net", "backend", "back-end", "back end",
+        "c#", "asp.net", "entity framework",
+    )):
+        return "backend_dotnet"
 
     return "full_stack"
 
