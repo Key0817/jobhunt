@@ -139,3 +139,26 @@ def get_job_cv_versions(job_id: str, db: Database = Depends(get_db)):
         }
         for version in versions
     ]
+
+
+
+@app.get("/api/cvs", response_model=list[dict])
+def list_all_cvs(db: Database = Depends(get_db)):
+    """Lista todas las versiones de CV para la biblioteca."""
+    versions = repo.list_all_cv_versions(db)
+
+    return [
+        {
+            "id": version["id"],
+            "job_id": version["job_id"],
+            "job_title": version["job_title"],
+            "company": version["company"],
+            "variant": version["variant"],
+            "profile_key": version.get("profile_key", ""),
+            "status": version.get("status", "pending_review"),
+            "approved": bool(version.get("approved", False)),
+            "model_name": version.get("model_name"),
+            "created_at": version["created_at"],
+        }
+        for version in versions
+    ]

@@ -10,14 +10,14 @@ import {
 } from 'lucide-react';
 import { STATUSES, STATUS_LABELS } from './types';
 import type { Job, JobStatus, Stats } from './types';
-import JobDetailPage from './JobDetailPage'; // <-- Importamos la nueva página
+import JobDetailPage from './JobDetailPage';
+import MyCVsPage from './MyCVsPage';
 
 const API_URL = 'http://localhost:8000';
-const CARDS_PER_COLUMN = 25; 
-type ViewType = 'dashboard' | 'offers' | 'detail';
-
+const CARDS_PER_COLUMN = 25;
+type ViewType = 'dashboard' | 'offers' | 'detail' | 'my-cvs';
 // Componente de la Barra Lateral modificado para recibir y cambiar la vista
-const Sidebar = ({isOpen, toggleSidebar, currentView, setView }: { isOpen: boolean; toggleSidebar: () => void; currentView: ViewType; setView: (view: ViewType) => void; }) => (
+const Sidebar = ({ isOpen, toggleSidebar, currentView, setView }: { isOpen: boolean; toggleSidebar: () => void; currentView: ViewType; setView: (view: ViewType) => void; }) => (
   <aside className={`${isOpen ? 'w-64' : 'w-20'} border-r border-dark-700 h-screen p-4 flex flex-col gap-6 fixed transition-all duration-300 z-20 bg-dark-900`}>
     <div className={`flex items-center ${isOpen ? 'justify-between' : 'justify-center'} px-2`}>
       {isOpen && (
@@ -41,8 +41,13 @@ const Sidebar = ({isOpen, toggleSidebar, currentView, setView }: { isOpen: boole
       </button>
 
       {isOpen && <div className="text-xs font-semibold mt-4 mb-1 px-2 text-gray-500">GESTIÓN</div>}
-      <button className={`w-full flex items-center gap-3 px-3 py-2 hover:bg-dark-800 rounded-md transition ${!isOpen && 'justify-center'}`} title="Mi Currículum">
-        <User size={18} /> {isOpen && <span>Mi Currículum</span>}
+      <button onClick={() => setView('my-cvs')} className={`w-full flex items-center gap-3 px-3 py-2 rounded-md transition ${currentView === 'my-cvs' ? 'bg-white text-black'
+        : 'hover:bg-dark-800'
+        } ${!isOpen && 'justify-center'}`}
+        title="Mi Currículum"
+      >
+        <User size={18} />
+        {isOpen && <span>Mi Currículum</span>}
       </button>
       <button onClick={() => setView('offers')} className={`w-full flex items-center gap-3 px-3 py-2 rounded-md transition ${currentView === 'offers' ? 'bg-white text-black' : 'hover:bg-dark-800'} ${!isOpen && 'justify-center'}`} title="Ofertas">
         <Briefcase size={18} /> {isOpen && <span>Ofertas</span>}
@@ -72,7 +77,7 @@ const JobCard = ({ job, onMove, onViewDetail }: { job: Job; onMove: (id: string,
   <div className="bg-dark-800 border border-dark-700 p-4 rounded-lg flex flex-col justify-between h-full hover:border-gray-500 transition">
     <div>
       <div className="flex items-start justify-between gap-2 mb-2">
-        <h4 
+        <h4
           onClick={() => onViewDetail(job.id)}
           className="font-semibold text-sm cursor-pointer hover:text-blue-400 hover:underline line-clamp-2"
         >
@@ -149,12 +154,11 @@ const OffersPage = ({ jobs, onMove, onViewDetail }: { jobs: Job[]; onMove: (id: 
   const filteredJobs = jobs.filter(job => {
     // 1. Filtro por estado
     if (filterStatus !== 'Todos' && job.status !== filterStatus) return false;
-    
+
     // 2. Filtro por puntaje
     if (job.score < filterMinScore) return false;
-    
+
     // 3. Filtro por modalidad (Asumiendo que remoto es un booleano en tu BD, o se infiere por "remote")
-    // Nota: Si tu API lo devuelve como texto en 'location', puedes ajustar la condición a job.location?.includes('Remoto')
     if (filterModality === 'Remoto' && job.remote !== true) return false;
     if (filterModality === 'Presencial' && job.remote === true) return false;
 
@@ -163,7 +167,7 @@ const OffersPage = ({ jobs, onMove, onViewDetail }: { jobs: Job[]; onMove: (id: 
       const jobDate = new Date(job.posted_at);
       const now = new Date();
       const diffDays = (now.getTime() - jobDate.getTime()) / (1000 * 3600 * 24);
-      
+
       if (filterDate === 'Hoy' && diffDays > 1) return false;
       if (filterDate === 'Últimos 7 días' && diffDays > 7) return false;
       if (filterDate === 'Último mes' && diffDays > 30) return false;
@@ -175,13 +179,13 @@ const OffersPage = ({ jobs, onMove, onViewDetail }: { jobs: Job[]; onMove: (id: 
   return (
     <div>
       <h2 className="text-2xl font-bold mb-6">Todas las Ofertas</h2>
-      
+
       {/* Barra de Filtros */}
       <div className="bg-dark-800 border border-dark-700 p-5 rounded-xl mb-6 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5 items-end">
         <div className="flex flex-col gap-2">
           <label className="offers-filter-label">Estado</label>
-          <select 
-            value={filterStatus} 
+          <select
+            value={filterStatus}
             onChange={e => setFilterStatus(e.target.value)}
             className="offers-filter-select"
             aria-label="Filtrar por estado"
@@ -194,11 +198,11 @@ const OffersPage = ({ jobs, onMove, onViewDetail }: { jobs: Job[]; onMove: (id: 
         <div className="flex flex-col gap-2">
           <label className="offers-filter-label" htmlFor="minimum-score">Puntaje mínimo</label>
           <div className="offers-filter-range">
-            <input 
+            <input
               id="minimum-score"
-              type="range" 
+              type="range"
               min="0" max="100" step="5"
-              value={filterMinScore} 
+              value={filterMinScore}
               onChange={e => setFilterMinScore(Number(e.target.value))}
               className="offers-filter-slider"
             />
@@ -208,8 +212,8 @@ const OffersPage = ({ jobs, onMove, onViewDetail }: { jobs: Job[]; onMove: (id: 
 
         <div className="flex flex-col gap-2">
           <label className="offers-filter-label">Modalidad</label>
-          <select 
-            value={filterModality} 
+          <select
+            value={filterModality}
             onChange={e => setFilterModality(e.target.value)}
             className="offers-filter-select"
             aria-label="Filtrar por modalidad"
@@ -222,8 +226,8 @@ const OffersPage = ({ jobs, onMove, onViewDetail }: { jobs: Job[]; onMove: (id: 
 
         <div className="flex flex-col gap-2">
           <label className="offers-filter-label">Publicación</label>
-          <select 
-            value={filterDate} 
+          <select
+            value={filterDate}
             onChange={e => setFilterDate(e.target.value)}
             className="offers-filter-select"
             aria-label="Filtrar por fecha de publicación"
@@ -260,9 +264,9 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  
+
   // Estados para controlar la navegación
-  const [currentView, setCurrentView] = useState<'dashboard' | 'offers' | 'detail'>('dashboard');
+  const [currentView, setCurrentView] = useState<ViewType>('dashboard');
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
@@ -317,14 +321,24 @@ function App() {
   const renderView = () => {
     if (currentView === 'detail' && selectedJobId) {
       return (
-        <JobDetailPage 
-          jobId={selectedJobId} 
-          onBack={() => setCurrentView('offers')} 
+        <JobDetailPage
+          jobId={selectedJobId}
+          onBack={() => setCurrentView('offers')}
           onMove={moveJob}
         />
       );
     }
-    
+
+    if (currentView === 'my-cvs') {
+      return (
+        <MyCVsPage
+          onViewCV={(versionId) => {
+            console.log('CV seleccionado:', versionId);
+          }}
+        />
+      );
+    }
+
     if (currentView === 'offers') {
       return <OffersPage jobs={jobs} onMove={moveJob} onViewDetail={handleViewDetail} />;
     }
@@ -374,9 +388,9 @@ function App() {
 
   return (
     <div className="min-h-screen bg-dark-900 text-white font-sans overflow-x-hidden">
-      <Sidebar 
-        isOpen={isSidebarOpen} 
-        toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} 
+      <Sidebar
+        isOpen={isSidebarOpen}
+        toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
         currentView={currentView}
         setView={setCurrentView}
       />
@@ -387,8 +401,8 @@ function App() {
             {error}
           </div>
         )}
-        
-        
+
+
         {renderView()}
       </main>
     </div>

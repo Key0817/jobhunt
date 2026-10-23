@@ -259,3 +259,54 @@ def list_cv_versions(db: Database, job_id: str) -> list[dict]:
         """,
         (job_id,),
     )
+
+
+def list_all_cv_versions(db: Database) -> list[dict]:
+    """Lista todas las versiones de CV con información de su oferta asociada."""
+    return db.query(
+        """
+        select
+            cv.id,
+            cv.job_id,
+            cv.variant,
+            cv.profile_key,
+            cv.status,
+            cv.approved,
+            cv.model_name,
+            cv.created_at,
+            j.title as job_title,
+            j.company
+        from cv_versions cv
+        inner join jobs j on j.id = cv.job_id
+        order by cv.created_at desc
+        """
+    )
+
+
+def get_cv_version_detail(db: Database, version_id: str) -> dict:
+    """Obtiene una versión de CV junto con la oferta asociada."""
+    rows = db.query(
+        """
+        select
+            cv.id,
+            cv.job_id,
+            cv.variant,
+            cv.profile_text,
+            cv.profile_key,
+            cv.status,
+            cv.approved,
+            cv.model_name,
+            cv.created_at,
+            j.title as job_title,
+            j.company
+        from cv_versions cv
+        inner join jobs j on j.id = cv.job_id
+        where cv.id = ?
+        """,
+        (version_id,),
+    )
+
+    if not rows:
+        raise LookupError(f"No existe la versión de CV {version_id}")
+
+    return rows[0]
