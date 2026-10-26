@@ -9,6 +9,7 @@ const API_URL = 'http://localhost:8000';
 interface JobDetailPageProps {
   jobId: string;
   onBack: () => void;
+  onViewCV: (versionId: string) => void;
   onMove: (id: string, status: JobStatus) => Promise<boolean>;
 }
 
@@ -31,7 +32,7 @@ interface CVGenerationResult {
   file_path: string;
 }
 
-export default function JobDetailPage({jobId,onBack,onMove,}: JobDetailPageProps) {
+export default function JobDetailPage({jobId,onBack,onMove,onViewCV,}: JobDetailPageProps) {
   const [job, setJob] = useState<Job | null>(null);
   const [loading, setLoading] = useState(true);
   const [generatingCV, setGeneratingCV] = useState(false);
@@ -289,21 +290,24 @@ export default function JobDetailPage({jobId,onBack,onMove,}: JobDetailPageProps
           ) : (
             <div className="space-y-3">
               {versions.map((version) => (
-                <div
+                <button
+                  type="button"
+                  onClick={() => onViewCV(version.id)}
+                  aria-label={`Ver detalle del CV ${version.id}`}
                   key={version.id}
-                  className="border border-dark-700 rounded-lg p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
+                  className="w-full text-left border border-dark-700 rounded-lg p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 cursor-pointer transition hover:bg-dark-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
                 >
-                  <div>
-                    <div className="font-medium">
+                  <span className="block">
+                    <span className="block font-medium">
                       Perfil: {version.profile_key || version.variant}
-                    </div>
-                    <div className="text-xs text-gray-400 mt-1">
+                    </span>
+                    <span className="block text-xs text-gray-400 mt-1">
                       {new Date(version.created_at).toLocaleString()}
-                    </div>
-                    <div className="text-xs text-gray-500 mt-1 break-all">
+                    </span>
+                    <span className="block text-xs text-gray-500 mt-1 break-all">
                       ID: {version.id}
-                    </div>
-                  </div>
+                    </span>
+                  </span>
 
                   <span
                     className={`text-xs px-3 py-1 rounded-full self-start sm:self-auto ${
@@ -318,7 +322,7 @@ export default function JobDetailPage({jobId,onBack,onMove,}: JobDetailPageProps
                         ? 'Pendiente de revisión'
                         : version.status}
                   </span>
-                </div>
+                </button>
               ))}
             </div>
           )}

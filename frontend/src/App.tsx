@@ -269,6 +269,7 @@ function App() {
   // Estados para controlar la navegación
   const [currentView, setCurrentView] = useState<ViewType>('dashboard');
   const [selectedCVId, setSelectedCVId] = useState<string | null>(null);
+  const [cvBackView, setCVBackView] = useState<'detail' | 'my-cvs'>('my-cvs');
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
@@ -327,6 +328,11 @@ function App() {
           jobId={selectedJobId}
           onBack={() => setCurrentView('offers')}
           onMove={moveJob}
+          onViewCV={(versionId) => {
+            setSelectedCVId(versionId);
+            setCVBackView('detail');
+            setCurrentView('cv-detail');
+          }}
         />
       );
     }
@@ -336,6 +342,7 @@ function App() {
         <MyCVsPage
           onViewCV={(versionId) => {
             setSelectedCVId(versionId);
+            setCVBackView('my-cvs');
             setCurrentView("cv-detail");
           }}
         />
@@ -346,7 +353,8 @@ function App() {
       return (
         <CVDetailPage
           versionId={selectedCVId}
-          onBack={() => setCurrentView('my-cvs')}
+          onBack={() => setCurrentView(cvBackView)}
+          backLabel={cvBackView === 'detail' ? 'Volver a la oferta' : 'Volver a mis CV'}
         />
       );
     }

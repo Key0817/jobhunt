@@ -33,6 +33,7 @@ type CVDetail = {
 type CVDetailPageProps = {
     versionId: string;
     onBack: () => void;
+    backLabel?: string;
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -45,6 +46,7 @@ const STATUS_LABELS: Record<string, string> = {
 export default function CVDetailPage({
     versionId,
     onBack,
+    backLabel = "Volver a mis CV",
 }: CVDetailPageProps) {
     const [cv, setCv] = useState<CVDetail | null>(null);
     const [loading, setLoading] = useState(true);
@@ -243,7 +245,7 @@ export default function CVDetailPage({
                     className="inline-flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900"
                 >
                     <ArrowLeft className="h-4 w-4" />
-                    Volver a mis CV
+                    {backLabel}
                 </button>
 
                 <p role="alert" className="text-sm text-red-600">
@@ -260,7 +262,7 @@ export default function CVDetailPage({
                 className="inline-flex items-center gap-2 text-sm font-medium text-slate-600 transition hover:text-slate-900"
             >
                 <ArrowLeft className="h-4 w-4" />
-                Volver a mis CV
+                {backLabel}
             </button>
 
             <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
