@@ -19,6 +19,9 @@ STATUSES = (
 )
 
 
+CV_STATUSES = ("pending_review", "approved", "rejected", "archived")
+
+
 def normalize(text: str | None) -> str:
     """Minúsculas, sin tildes ni signos: 'Desarrollador/a Sr.' -> 'desarrollador a sr'."""
     if not text:

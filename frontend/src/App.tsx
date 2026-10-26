@@ -12,10 +12,11 @@ import { STATUSES, STATUS_LABELS } from './types';
 import type { Job, JobStatus, Stats } from './types';
 import JobDetailPage from './JobDetailPage';
 import MyCVsPage from './MyCVsPage';
+import CVDetailPage from './CVDetailPage';
 
 const API_URL = 'http://localhost:8000';
 const CARDS_PER_COLUMN = 25;
-type ViewType = 'dashboard' | 'offers' | 'detail' | 'my-cvs';
+type ViewType = 'dashboard' | 'offers' | 'detail' | 'my-cvs' | 'cv-detail';
 // Componente de la Barra Lateral modificado para recibir y cambiar la vista
 const Sidebar = ({ isOpen, toggleSidebar, currentView, setView }: { isOpen: boolean; toggleSidebar: () => void; currentView: ViewType; setView: (view: ViewType) => void; }) => (
   <aside className={`${isOpen ? 'w-64' : 'w-20'} border-r border-dark-700 h-screen p-4 flex flex-col gap-6 fixed transition-all duration-300 z-20 bg-dark-900`}>
@@ -267,6 +268,7 @@ function App() {
 
   // Estados para controlar la navegación
   const [currentView, setCurrentView] = useState<ViewType>('dashboard');
+  const [selectedCVId, setSelectedCVId] = useState<string | null>(null);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
@@ -333,8 +335,18 @@ function App() {
       return (
         <MyCVsPage
           onViewCV={(versionId) => {
-            console.log('CV seleccionado:', versionId);
+            setSelectedCVId(versionId);
+            setCurrentView("cv-detail");
           }}
+        />
+      );
+    }
+
+    if (currentView === 'cv-detail' && selectedCVId) {
+      return (
+        <CVDetailPage
+          versionId={selectedCVId}
+          onBack={() => setCurrentView('my-cvs')}
         />
       );
     }

@@ -3,6 +3,10 @@ from pathlib import Path
 from collections.abc import Iterator
 from contextlib import asynccontextmanager
 from typing import Optional
+import subprocess
+import tempfile
+from io import BytesIO
+from fastapi.responses import StreamingResponse
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
@@ -11,8 +15,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from . import repo
 from .config import database_url, load_dotenv
 from .db import Database
-from .schemas import JobDetail, JobResponse, JobStatus, JobUpdateStatus, StatsResponse
+from .schemas import JobDetail, JobResponse, JobStatus, JobUpdateStatus, StatsResponse, CVUpdateStatus
 from .cv.generator import generate_cv, OUTPUT_DIR
+from .cv.ai import AIError, generate_cover_letter
+from .cv.profile import load_profile
 
 load_dotenv()
 
@@ -40,7 +46,7 @@ app.add_middleware(
 
 def get_db() -> Iterator[Database]:
     """Una conexión por petición, cerrada al terminar."""
-    db = Database(database_url()) 
+    db = Database(database_url())
     try:
         yield db
     finally:
@@ -93,13 +99,17 @@ def create_job_cv(job_id: str, db: Database = Depends(get_db)):
     except LookupError:
         raise HTTPException(status_code=404, detail="Oferta no encontrada")
 
+    db.conn.commit()
     try:
         result = generate_cv(
             job_id=job["id"],
             job_title=job["title"],
             description=job.get("description") or "",
             db=db,
+            company=job.get("company") or "",
         )
+    except AIError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except FileNotFoundError as exc:
         raise HTTPException(
             status_code=500,
@@ -162,3 +172,169 @@ def list_all_cvs(db: Database = Depends(get_db)):
         }
         for version in versions
     ]
+
+@app.get("/api/cvs/{version_id}")
+def get_cv_detail(
+    version_id: str,
+    db: Database = Depends(get_db),
+):
+    """Devuelve el contenido editable de una versión del CV."""
+    try:
+        version = repo.get_cv_version_detail(db, version_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    return {
+        "id": version["id"],
+        "job_id": version["job_id"],
+        "job_title": version["job_title"],
+        "company": version["company"],
+        "variant": version["variant"],
+        "profile_text": version["profile_text"],
+        "cover_letter": version.get("cover_letter"),
+        "cover_letter_model_name": version.get("cover_letter_model_name"),
+        "profile_key": version.get("profile_key", ""),
+        "status": version.get("status", "pending_review"),
+        "approved": bool(version.get("approved", False)),
+        "model_name": version.get("model_name"),
+        "created_at": version["created_at"],
+    }
+
+
+@app.get("/api/cvs/{version_id}/pdf")
+def download_cv_pdf(
+    version_id: str,
+    db: Database = Depends(get_db),
+):
+    try:
+        cv = repo.get_cv_version_detail(db, version_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    stored_path = cv.get("file_path")
+
+    if not stored_path:
+        raise HTTPException(
+            status_code=404,
+            detail="Esta versión no tiene un archivo generado.",
+        )
+
+    # Las rutas de generator.py son relativas a PROJECT_ROOT.
+    project_root = OUTPUT_DIR.parent.resolve()
+    file_path = Path(stored_path)
+
+    if not file_path.is_absolute():
+        file_path = project_root / file_path
+
+    file_path = file_path.resolve()
+
+    # Evita acceder a archivos fuera del proyecto.
+    if not file_path.is_relative_to(project_root):
+        raise HTTPException(
+            status_code=400,
+            detail="Ruta de documento no permitida.",
+        )
+
+    if not file_path.is_file():
+        raise HTTPException(
+            status_code=404,
+            detail="No se encontró el archivo DOCX de esta versión.",
+        )
+
+    if file_path.suffix.lower() != ".docx":
+        raise HTTPException(
+            status_code=400,
+            detail="El documento generado no es un archivo DOCX.",
+        )
+
+    try:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            subprocess.run(
+                [
+                    "soffice",
+                    "--headless",
+                    "--convert-to",
+                    "pdf",
+                    "--outdir",
+                    temp_dir,
+                    str(file_path),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+
+            pdf_path = Path(temp_dir) / f"{file_path.stem}.pdf"
+
+            if not pdf_path.is_file():
+                raise HTTPException(
+                    status_code=500,
+                    detail="LibreOffice no generó el archivo PDF.",
+                )
+
+            pdf_bytes = pdf_path.read_bytes()
+
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="LibreOffice no está instalado o soffice no está en el PATH.",
+        ) from exc
+    except subprocess.TimeoutExpired as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="La conversión del CV excedió el tiempo permitido.",
+        ) from exc
+    except subprocess.CalledProcessError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error durante la conversión del DOCX: {exc.stderr}",
+        ) from exc
+
+    return StreamingResponse(
+        BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="cv_{version_id}.pdf"'
+            )
+        },
+    )
+
+@app.patch("/api/cvs/{version_id}/status", response_model=dict)
+def update_cv_status(version_id: str, update: CVUpdateStatus, db: Database = Depends(get_db)):
+    try:
+        saved = repo.change_cv_status(db, version_id, update.status.value)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "id": saved["id"], "status": saved["status"],
+        "approved": bool(saved["approved"]), "approved_at": saved["approved_at"],
+    }
+
+
+@app.post("/api/cvs/{version_id}/cover-letter", response_model=dict)
+def create_cover_letter(version_id: str, db: Database = Depends(get_db)):
+    """Genera y guarda la carta para la oferta de esta versión del CV."""
+    try:
+        cv = repo.get_cv_version_detail(db, version_id)
+        job = repo.get_job_detail(db, cv["job_id"])
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    db.conn.commit()
+    try:
+        generated = generate_cover_letter(load_profile(), cv, job)
+    except AIError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except (FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    try:
+        saved = repo.save_cover_letter(db, version_id, generated.text, generated.model_name)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {
+        "id": saved["id"], "cover_letter": saved["cover_letter"],
+        "cover_letter_model_name": saved["cover_letter_model_name"],
+    }

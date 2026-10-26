@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, time, timedelta, timezone
 
 from .db import Database
-from .models import STATUSES, JobPosting
+from .models import STATUSES, CV_STATUSES, JobPosting
 from .ranking import RankingProfile, Score
 
 
@@ -292,6 +292,9 @@ def get_cv_version_detail(db: Database, version_id: str) -> dict:
             cv.job_id,
             cv.variant,
             cv.profile_text,
+            cv.cover_letter,
+            cv.cover_letter_model_name,
+            cv.file_path,
             cv.profile_key,
             cv.status,
             cv.approved,
@@ -310,3 +313,31 @@ def get_cv_version_detail(db: Database, version_id: str) -> dict:
         raise LookupError(f"No existe la versión de CV {version_id}")
 
     return rows[0]
+
+def save_cover_letter(db: Database, version_id: str, text: str, model_name: str) -> dict:
+    """Guarda la carta en la versión del CV sin cambiar su perfil o aprobación."""
+    with db.transaction():
+        updated = db.execute(
+            "update cv_versions set cover_letter = ?, cover_letter_model_name = ? where id = ?",
+            (text, model_name, version_id),
+        )
+        if updated.rowcount == 0:
+            raise LookupError(f"No existe la versión de CV {version_id}")
+    return get_cv_version_detail(db, version_id)
+
+
+def change_cv_status(db: Database, version_id: str, status: str) -> dict:
+    """Mantiene estado, aprobación y fecha de aprobación coherentes."""
+    if status not in CV_STATUSES:
+        raise ValueError("Estado de CV no válido.")
+    approved = status == "approved"
+    with db.transaction():
+        result = db.execute(
+            "update cv_versions set status = ?, approved = ?, "
+            "approved_at = case when ? then coalesce(approved_at, ?) else null end "
+            "where id = ?",
+            (status, approved, approved, now() if approved else None, version_id),
+        )
+        if result.rowcount == 0:
+            raise LookupError(f"No existe la versión de CV {version_id}")
+    return get_cv_version(db, version_id)

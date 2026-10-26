@@ -39,6 +39,14 @@ const STATUS_STYLES: Record<string, string> = {
   archived: 'bg-gray-500/10 text-gray-300 border-gray-500/20',
 };
 
+const FILTER_OPTIONS = [
+  { value: 'all', label: 'Todos los estados' },
+  { value: 'pending_review', label: 'Pendientes de revisión' },
+  { value: 'approved', label: 'Aprobados' },
+  { value: 'rejected', label: 'Rechazados' },
+  { value: 'archived', label: 'Archivados' },
+];
+
 export default function MyCVsPage({ onViewCV }: MyCVsPageProps) {
   const [versions, setVersions] = useState<CVVersion[]>([]);
   const [loading, setLoading] = useState(true);
@@ -140,24 +148,14 @@ export default function MyCVsPage({ onViewCV }: MyCVsPageProps) {
         <select
           value={filterStatus}
           onChange={(event) => setFilterStatus(event.target.value)}
-          className="bg-dark-800 border border-dark-700 rounded-lg px-3 py-2 text-sm text-gray-200 scheme-dark"
+          className="status-select min-w-48"
           aria-label="Filtrar currículums por estado"
         >
-          <option value="all" className="bg-dark-800 text-gray-200">
-            Todos los estados
-          </option>
-          <option value="pending_review" className="bg-dark-800 text-gray-200">
-            Pendientes de revisión
-          </option>
-          <option value="approved" className="bg-dark-800 text-gray-200">
-            Aprobados
-          </option>
-          <option value="rejected" className="bg-dark-800 text-gray-200">
-            Rechazados
-          </option>
-          <option value="archived" className="bg-dark-800 text-gray-200">
-            Archivados
-          </option>
+          {FILTER_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
         </select>
       </div>
 

@@ -34,6 +34,11 @@ body {
   border-color: #3b82f6;
 }
 
+.status-select option {
+  background-color: #0F0F11;
+  color: #d1d5db;
+}
+
 .offers-filter-label {
   color: #9ca3af;
   font-size: 0.75rem;

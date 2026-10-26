@@ -5,10 +5,17 @@ from typing import Optional
 
 from pydantic import BaseModel
 
-from .models import STATUSES
+from .models import STATUSES, CV_STATUSES
 
 # Se arma desde models.STATUSES para que la API y la base de datos nunca se desincronicen.
 JobStatus = Enum("JobStatus", {status: status for status in STATUSES}, type=str)
+
+
+CVStatus = Enum("CVStatus", {status: status for status in CV_STATUSES}, type=str)
+
+
+class CVUpdateStatus(BaseModel):
+    status: CVStatus
 
 
 class JobResponse(BaseModel):

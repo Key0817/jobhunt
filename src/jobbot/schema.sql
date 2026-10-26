@@ -41,6 +41,8 @@ create table if not exists cv_versions (
     job_id        text not null references jobs (id) on delete cascade,
     variant       text not null default '',
     profile_text  text not null,
+    cover_letter  text,
+    cover_letter_model_name text,
     approved      boolean not null default false,
     created_at    timestamptz not null
 );

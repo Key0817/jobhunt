@@ -4,12 +4,12 @@ from pathlib import Path
 from docxtpl import DocxTemplate
 
 from .profile import PROJECT_ROOT, load_profile
-from .selectors import select_base_profile
+from .ai import generate_profile
 from .. import repo
 from ..db import Database
 
 
-TEMPLATE_PATH = PROJECT_ROOT / "templates" / "cv_master.docx"
+TEMPLATE_PATH = PROJECT_ROOT / "templates" / "CV_Master.docx"
 OUTPUT_DIR = PROJECT_ROOT / "generated"
 
 
@@ -25,23 +25,22 @@ def generate_cv(
     job_title: str,
     description: str = "",
     db: Database | None = None,
+    company: str = "",
 ) -> dict:
     """Genera el DOCX y, si recibe db, registra la versión pendiente de revisión."""
     if not TEMPLATE_PATH.is_file():
         raise FileNotFoundError(f"No existe la plantilla: {TEMPLATE_PATH}")
 
     profile = load_profile()
-    profile_key, selected_text = select_base_profile(
-        job_title,
-        description,
-        profile["base_profiles"],
-    )
+    generated = generate_profile(profile, job_title, description, company)
+    profile_key = "ai"
+    selected_text = generated.text
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     from datetime import datetime
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     filename = (
         f"{safe_filename(job_id)}_"
         f"{safe_filename(profile_key)}_{timestamp}.docx"
@@ -49,13 +48,14 @@ def generate_cv(
     output_path = OUTPUT_DIR / filename
 
     doc = DocxTemplate(str(TEMPLATE_PATH))
-    doc.render({"perfil": selected_text})
+    doc.render({"perfil": selected_text}, autoescape=True)
     doc.save(str(output_path))
 
     result = {
         "job_id": job_id,
         "profile_key": profile_key,
         "profile_text": selected_text,
+        "model_name": generated.model_name,
         "file_path": str(output_path),
         "status": "pending_review",
         "version_id": None,
@@ -70,7 +70,7 @@ def generate_cv(
             profile_text=selected_text,
             file_path=relative_path,
             profile_key=profile_key,
-            model_name=None,
+            model_name=generated.model_name,
         )
         result["version_id"] = version["id"]
 

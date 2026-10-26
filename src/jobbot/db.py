@@ -16,6 +16,8 @@ MIGRATIONS = [
     ("cv_versions", "status", "text not null default 'pending_review'"),
     ("cv_versions", "model_name", "text"),
     ("cv_versions", "approved_at", "timestamptz"),
+    ("cv_versions", "cover_letter", "text"),
+    ("cv_versions", "cover_letter_model_name", "text"),
 ]
 
 # sqlite3 ya no recomienda su adaptador de datetime por defecto (Python 3.12+).

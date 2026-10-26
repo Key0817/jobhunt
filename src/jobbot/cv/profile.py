@@ -25,7 +25,7 @@ def load_profile() -> dict:
     if not isinstance(data, dict):
         raise ValueError("La sección 'profile' debe ser un objeto YAML.")
 
-    if not data.get("base_profiles"):
-        raise ValueError("Debes definir al menos un texto en 'base_profiles'.")
+    if not data.get("experience") and not data.get("skills"):
+        raise ValueError("Define experiencia o habilidades reales en el perfil para generar con IA.")
 
     return data
