@@ -1,6 +1,8 @@
-# Qué busca el bot. Los adaptadores reales se agregan en la Fase 1.
+# Fuentes activas y criterios de búsqueda. Empresas en config/companies.yml.
 sources:
-  - getonboard         
+  - getonboard
+  - greenhouse
+  - smartrecruiters
 
 residence_country: CR 
 max_age_days: 30

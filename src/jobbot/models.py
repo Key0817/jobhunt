@@ -58,6 +58,8 @@ class JobPosting:
 
     @property
     def dedupe_key(self) -> str:
-        """Misma empresa + mismo título + mismo país = misma oferta, venga de la fuente que venga."""
+        """Identidad de publicación; conserva el criterio histórico si no hay ID externo."""
+        if self.external_id:
+            return hashlib.sha1(f"{self.source}|id:{self.external_id}".encode("utf-8")).hexdigest()
         base = f"{normalize(self.company)}|{normalize(self.title)}|{(self.country or '').upper()}"
         return hashlib.sha1(base.encode("utf-8")).hexdigest()

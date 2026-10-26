@@ -30,33 +30,59 @@ def _to_datetime(value) -> datetime | None:
     return datetime.fromisoformat(str(value))
 
 
+def canonical_job_url(url: str) -> str:
+    from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+    parts = urlsplit(url)
+    query = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True)
+             if not k.lower().startswith("utm_") and k.lower() not in {"gh_src", "lever-source", "lever-origin", "trackingid", "trk"}]
+    return urlunsplit((parts.scheme.lower(), parts.netloc.lower(), parts.path.rstrip("/"),
+                       urlencode(sorted(query)), parts.fragment))
+
+
 def insert_job_if_new(db: Database, p: JobPosting, score: Score | None = None) -> bool:
-    """Guarda la oferta si no existía (según dedupe_key). Devuelve True si era nueva."""
+    """Identifica por fuente/ID, conserva publicaciones distintas y actualiza última vista."""
     ts = now()
-    job_id = new_id()
+    canonical = canonical_job_url(p.url)
+    source_key = f"id:{p.external_id}" if p.external_id else f"url:{canonical}"
     points, detail = _score_columns(score)
+    inserted = False
     with db.transaction():
-        cur = db.execute(
-            """insert into jobs (id, dedupe_key, source, external_id, title, company, country,
-                                 location, remote, url, description, posted_at, detected_at,
-                                 score, score_detail, raw)
-               values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-               on conflict (dedupe_key) do nothing""",
-            (
-                job_id, p.dedupe_key, p.source, p.external_id, p.title, p.company, p.country,
-                p.location, p.remote, p.url, p.description, p.posted_at, ts,
-                points, detail,
-                json.dumps(p.raw, default=str, ensure_ascii=False),
-            ),
-        )
-        if cur.rowcount == 0:
-            return False
+        rows = db.query("select job_id from job_sources where source = ? and source_key = ?", (p.source, source_key))
+        if not rows:
+            # Only merge different feeds automatically when the vacancy URL is identical.
+            rows = db.query("select job_id from job_sources where canonical_url = ? limit 1", (canonical,))
+        if not rows:
+            rows = db.query("select id as job_id from jobs where url = ? limit 1", (p.url,))
+        if rows:
+            job_id = rows[0]["job_id"]
+        else:
+            job_id = new_id()
+            cur = db.execute(
+                "insert into jobs (id, dedupe_key, source, external_id, title, company, country, "
+                "location, remote, url, description, posted_at, detected_at, last_seen_at, score, score_detail, raw) "
+                "values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "on conflict (dedupe_key) do nothing",
+                (job_id, p.dedupe_key, p.source, p.external_id, p.title, p.company, p.country,
+                 p.location, p.remote, p.url, p.description, p.posted_at, ts, ts, points, detail,
+                 json.dumps(p.raw, default=str, ensure_ascii=False)),
+            )
+            inserted = cur.rowcount != 0
+            if not inserted:
+                job_id = db.query("select id from jobs where dedupe_key = ?", (p.dedupe_key,))[0]["id"]
+            else:
+                db.execute(
+                    "insert into status_history (id, job_id, from_status, to_status, changed_at) values (?, ?, ?, ?, ?)",
+                    (new_id(), job_id, None, "encontrada", ts),
+                )
+        db.execute("update jobs set last_seen_at = ? where id = ?", (ts, job_id))
         db.execute(
-            "insert into status_history (id, job_id, from_status, to_status, changed_at) "
-            "values (?, ?, ?, ?, ?)",
-            (new_id(), job_id, None, "encontrada", ts),
+            "insert into job_sources (source, source_key, job_id, external_id, url, canonical_url, first_seen_at, last_seen_at) "
+            "values (?, ?, ?, ?, ?, ?, ?, ?) on conflict (source, source_key) do update set "
+            "url = excluded.url, canonical_url = excluded.canonical_url, last_seen_at = excluded.last_seen_at",
+            (p.source, source_key, job_id, p.external_id, p.url, canonical, ts, ts),
         )
-    return True
+    return inserted
 
 
 def change_status(db: Database, job_id: str, new_status: str) -> None:
@@ -184,12 +210,14 @@ def rerank_all(db: Database, profile: RankingProfile) -> int:
 
 
 def record_run(db: Database, source: str, started: datetime, finished: datetime,
-               found: int, inserted: int, error: str | None) -> None:
+               found: int, inserted: int, error: str | None,
+               status: str | None = None, details: dict | None = None) -> None:
     with db.transaction():
         db.execute(
-            "insert into runs (id, source, started_at, finished_at, found, inserted, error) "
-            "values (?, ?, ?, ?, ?, ?, ?)",
-            (new_id(), source, started, finished, found, inserted, error),
+            "insert into runs (id, source, started_at, finished_at, found, inserted, error, status, details) "
+            "values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (new_id(), source, started, finished, found, inserted, error,
+             status or ("failed" if error else "success"), json.dumps(details or {}, ensure_ascii=False)),
         )
         
 

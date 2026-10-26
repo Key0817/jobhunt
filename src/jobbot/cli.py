@@ -182,7 +182,7 @@ def main(argv: list[str] | None = None) -> int:
             if profile is None:
                 log.warning("No se encontró config/ranking.yml: las ofertas nuevas quedan sin puntaje")
             summaries = collect(db, build_sources(names), query, profile)
-            return 1 if any(s.error for s in summaries) else 0
+            return 1 if any(s.status != "success" for s in summaries) else 0
         elif args.cmd == "rank":
             query, _ = load_search_config()
             profile = load_ranking_profile(query.keywords)

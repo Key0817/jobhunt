@@ -1,0 +1,132 @@
+# Empresas por plataforma. Las deshabilitadas no se consultan.
+companies:
+- id: accela
+  name: Accela
+  platform: greenhouse
+  board_id: accela
+  careers_url: https://job-boards.greenhouse.io/accela
+  enabled: true
+- id: nerdy
+  name: Nerdy
+  platform: greenhouse
+  board_id: nerdy
+  careers_url: https://job-boards.greenhouse.io/nerdy
+  enabled: false
+  notes: La comprobación real devolvió HTTP 404; revisar board_id o cambio de plataforma.
+- id: nozominetworks
+  name: Nozomi Networks
+  platform: greenhouse
+  board_id: nozominetworks
+  careers_url: https://job-boards.greenhouse.io/nozominetworks
+  enabled: true
+- id: sumologic
+  name: Sumo Logic
+  platform: greenhouse
+  board_id: sumologic
+  careers_url: https://job-boards.greenhouse.io/sumologic
+  enabled: true
+- id: zenoti
+  name: Zenoti
+  platform: greenhouse
+  board_id: zenoti
+  careers_url: https://job-boards.greenhouse.io/zenoti
+  enabled: true
+- id: acquia
+  name: Acquia
+  platform: greenhouse
+  board_id: acquia
+  careers_url: https://job-boards.greenhouse.io/acquia
+  enabled: true
+- id: applaudostudios
+  name: Applaudo
+  platform: smartrecruiters
+  board_id: ApplaudoStudios
+  careers_url: https://careers.smartrecruiters.com/ApplaudoStudios
+  enabled: true
+- id: softwaremind
+  name: SoftwareMind
+  platform: smartrecruiters
+  board_id: SoftwareMind
+  careers_url: https://careers.smartrecruiters.com/SoftwareMind
+  enabled: true
+- id: nagarro1
+  name: Nagarro
+  platform: smartrecruiters
+  board_id: Nagarro1
+  careers_url: https://careers.smartrecruiters.com/Nagarro1
+  enabled: true
+  include_global_remote: false
+  notes: Consulta por país de residencia; se omite la pasada global por el volumen
+    del portal.
+- id: boschgroup
+  name: Bosch Group
+  platform: smartrecruiters
+  board_id: BoschGroup
+  careers_url: https://careers.smartrecruiters.com/BoschGroup
+  enabled: true
+  include_global_remote: false
+  notes: Consulta por país de residencia; se omite la pasada global por el volumen
+    del portal.
+- id: nielseniq
+  name: NielsenIQ
+  platform: smartrecruiters
+  board_id: NielsenIQ
+  careers_url: https://careers.smartrecruiters.com/NielsenIQ
+  enabled: true
+  include_global_remote: false
+  notes: Consulta por país de residencia; se omite la pasada global por el volumen
+    del portal.
+- id: visa
+  name: Visa
+  platform: smartrecruiters
+  board_id: Visa
+  careers_url: https://careers.smartrecruiters.com/Visa
+  enabled: true
+- id: humancapitalcr
+  name: Human Capital CR
+  platform: smartrecruiters
+  board_id: HumanCapitalCR
+  careers_url: https://careers.smartrecruiters.com/HumanCapitalCR
+  enabled: true
+- id: expeditors
+  name: Expeditors
+  platform: smartrecruiters
+  board_id: Expeditors
+  careers_url: https://careers.smartrecruiters.com/Expeditors
+  enabled: true
+  include_global_remote: false
+  notes: Consulta por país de residencia; se omite la pasada global por el volumen
+    del portal.
+- id: criticalmass
+  name: Critical Mass
+  platform: greenhouse
+  board_id: criticalmass
+  careers_url: https://job-boards.greenhouse.io/criticalmass
+  enabled: true
+- id: datacor
+  name: Datacor
+  platform: greenhouse
+  board_id: datacor
+  careers_url: https://job-boards.greenhouse.io/datacor
+  enabled: true
+- id: experian
+  name: Experian
+  platform: smartrecruiters
+  board_id: Experian
+  careers_url: https://careers.smartrecruiters.com/Experian
+  enabled: true
+  include_global_remote: false
+- id: servicenow
+  name: ServiceNow
+  platform: smartrecruiters
+  board_id: ServiceNow
+  careers_url: https://careers.smartrecruiters.com/ServiceNow
+  enabled: true
+  include_global_remote: false
+- id: hitachisolutions
+  name: Hitachi Solutions
+  platform: smartrecruiters
+  board_id: HitachiSolutions
+  careers_url: https://careers.smartrecruiters.com/HitachiSolutions
+  enabled: true
+  include_global_remote: false

@@ -16,7 +16,7 @@ import urllib.request
 from datetime import datetime, timezone
 
 from ..models import JobPosting, SearchQuery, normalize
-from .base import Source, register
+from .base import Source, FetchResult, register
 
 log = logging.getLogger("jobbot")
 
@@ -188,6 +188,7 @@ class GetOnBoardSource(Source):
     def fetch(self, query: SearchQuery) -> list[JobPosting]:
         found: dict[str, JobPosting] = {}
         failed_tasks: list[str] = []
+        capped_tasks: list[str] = []
         consecutive_failures = 0
         last_error: Exception | None = None
         first_request = True
@@ -241,6 +242,8 @@ class GetOnBoardSource(Source):
                         break
                 elif len(jobs) < PER_PAGE:
                     break
+                if page == MAX_PAGES:
+                    capped_tasks.append(label)
 
             if out_of_time:
                 log.warning("Get on Board: se agotó el presupuesto de tiempo (%d s) en %s; "
@@ -257,4 +260,9 @@ class GetOnBoardSource(Source):
         if failed_tasks:
             log.warning("Get on Board: corrida parcial; fallaron: %s", ", ".join(dict.fromkeys(failed_tasks)))
         log.info("Get on Board: %d ofertas únicas", len(found))
-        return list(found.values())
+        partial = bool(failed_tasks or capped_tasks or out_of_time)
+        return FetchResult(found.values(), status="partial" if partial else "success", details={
+            "failed_tasks": list(dict.fromkeys(failed_tasks)),
+            "page_limited_tasks": capped_tasks,
+            "time_limit_reached": out_of_time,
+        })

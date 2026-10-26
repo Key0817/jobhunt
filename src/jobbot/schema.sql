@@ -15,6 +15,7 @@ create table if not exists jobs (
     description  text not null default '',
     posted_at    timestamptz,
     detected_at  timestamptz not null,
+    last_seen_at timestamptz,
     score        real not null default 0,
     score_detail text not null default '{}',
     status       text not null default 'encontrada'
@@ -55,5 +56,7 @@ create table if not exists runs (
     finished_at  timestamptz,
     found        integer not null default 0,
     inserted     integer not null default 0,
-    error        text
+    error        text,
+    status       text not null default 'unknown',
+    details      text not null default '{}'
 );

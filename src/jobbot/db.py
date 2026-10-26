@@ -11,6 +11,9 @@ HERE = Path(__file__).parent
 # create table if not exists no modifica tablas que ya existen, así que se agregan aquí.
 MIGRATIONS = [
     ("jobs", "score_detail", "text not null default '{}'"),
+    ("jobs", "last_seen_at", "timestamptz"),
+    ("runs", "status", "text not null default 'unknown'"),
+    ("runs", "details", "text not null default '{}'"),
     ("cv_versions", "profile_key", "text not null default ''"),
     ("cv_versions", "file_path", "text not null default ''"),
     ("cv_versions", "status", "text not null default 'pending_review'"),
@@ -85,6 +88,32 @@ class Database:
             if existing and column not in existing:
                 with self.transaction():
                     self.execute(f"alter table {table} add column {column} {definition}")
+        job_columns = self.columns("jobs")
+        if "id" in job_columns:
+            with self.transaction():
+                script = (HERE / "collection_schema.sql").read_text(encoding="utf-8")
+                # Execute each DDL statement in the same transaction on both engines.
+                for statement in script.split(";"):
+                    if statement.strip():
+                        self.execute(statement)
+                if not self.is_sqlite:
+                    self.execute("alter table job_sources enable row level security")
+                if {"source", "external_id", "url", "detected_at"} <= job_columns:
+                    self.execute("update jobs set last_seen_at = detected_at where last_seen_at is null")
+                    self.execute(
+                        "insert into job_sources (source, source_key, job_id, external_id, url, canonical_url, first_seen_at, last_seen_at) "
+                        "select source, case when external_id is not null and external_id <> '' "
+                        "then 'id:' || external_id else 'url:' || url end, id, external_id, url, url, detected_at, "
+                        "coalesce(last_seen_at, detected_at) from jobs where true "
+                        "on conflict (source, source_key) do nothing"
+                    )
+        with self.transaction():
+            script = (HERE / "mail_schema.sql").read_text(encoding="utf-8")
+            for statement in script.split(";"):
+                if statement.strip():
+                    self.execute(statement)
+            if not self.is_sqlite:
+                self.execute("alter table email_imports enable row level security")
         self.conn.commit()
 
     def init_schema(self) -> None:

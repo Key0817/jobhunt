@@ -29,8 +29,8 @@ class ExampleSource(Source):
             ),
             # Misma oferta que la primera, con distinto formato: debe deduplicarse.
             JobPosting(
-                source=self.name, external_id="ex-3", title="desarrollador backend  python",
-                company="ACME CR", country="CR", url="https://example.com/jobs/3",
+                source=self.name, external_id="ex-1", title="desarrollador backend  python",
+                company="ACME CR", country="CR", url="https://example.com/jobs/1",
                 posted_at=today - timedelta(days=1),
             ),
             # Demasiado antigua: el filtro de antigüedad debe descartarla.
