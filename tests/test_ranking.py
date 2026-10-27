@@ -187,6 +187,49 @@ class PenaltyAndBonusTests(unittest.TestCase):
 
 
 class ProfileTests(unittest.TestCase):
+    def test_aliases_are_recognized_without_double_points(self):
+        p = profile(skills={"next.js": 2, "nextjs": 3})
+        self.assertEqual(points(p, "Developer NextJS"), 52)
+        self.assertEqual(points(p, "Developer Next.js"), 52)
+
+    def test_overlapping_search_terms_do_not_inflate_score(self):
+        p = profile(interests=["developer", "software developer", "Software Developer"])
+        self.assertEqual(points(p, "Software Developer"), 43)
+
+    def test_unrelated_title_with_long_stack_stays_low(self):
+        p = profile(skills={f"tec{i}": 3 for i in range(12)})
+        score = p.rank(job("Asistente administrativo", " ".join(p[0] for p in p.skills), days=1), now=NOW)
+        self.assertEqual(score.points, 25)
+        self.assertTrue(any("sin coincidencia" in r for r in score.reasons))
+
+    def test_description_uses_strongest_family(self):
+        families = {"debil": {"weight": .25, "title_terms": ["tester"]},
+                    "fuerte": {"weight": 1, "title_terms": ["developer"]}}
+        self.assertEqual(points(profile(families=families), "Especialista", "tester y developer"), 8)
+
+    def test_lead_title_does_not_hide_behind_senior(self):
+        self.assertEqual(points(profile(), "Senior Developer Lead"), 5)
+
+    def test_optional_experience_and_company_age_are_not_requirements(self):
+        self.assertIsNone(required_years("5 years of experience preferred"))
+        self.assertIsNone(required_years("Nuestra empresa tiene 10 años de experiencia"))
+        self.assertEqual(required_years("2 years of experience required. 5 years of experience preferred."), 2)
+        self.assertEqual(required_years("We are seeking a developer with 5 years of experience"), 5)
+
+    def test_future_date_gets_no_bonus_and_naive_now_works(self):
+        self.assertEqual(points(profile(), "Developer", posted_at=NOW + timedelta(days=5)), 40)
+        self.assertEqual(profile().rank(job("Developer", days=1), now=NOW.replace(tzinfo=None)).points, 45)
+
+    def test_invalid_weights_are_rejected(self):
+        for value in (-1, float("nan"), float("inf"), 4):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                profile(skills={"python": value})
+
+    def test_reason_values_add_up_to_final_score(self):
+        for title in ("Marketing Developer", "Junior Developer Python SQL Java"):
+            score = profile().rank(job(title, days=1), now=NOW)
+            self.assertEqual(sum(int(r.split()[0]) for r in score.reasons), score.points)
+
     def test_reasons_are_signed_and_serializable(self):
         score = profile().rank(job("Senior Python Developer", days=1), now=NOW)
         self.assertTrue(score.reasons)

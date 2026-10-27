@@ -1,6 +1,11 @@
 # Tu perfil para ordenar las ofertas (Fase 2).
 # Edítalo cuando quieras y recalcula con:  python -m jobbot rank
-# Los términos no distinguen mayúsculas, tildes ni guiones: "Front-End" y "frontend" cuentan igual.
+# Los términos no distinguen mayúsculas ni tildes; reconoce alias comunes
+# (Front-End/frontend, Next.js/nextjs, Node.js/nodejs, HTML/HTML5, CSS/CSS3).
+# Los alias suman una vez con el mayor peso; los pesos permitidos van de 0 a 3.
+# Las frases de búsqueda que se superponen no suman dos veces.
+# Sin coincidencia de familia en el título, el puntaje no supera 25.
+# La fecha futura no suma frescura y la experiencia deseable no resta puntos.
 
 level: junior            
 english: intermediate    

@@ -5,7 +5,9 @@ Cada punto tiene una razón. Los pesos y tu perfil viven en config/ranking.yml.
 from __future__ import annotations
 
 import re
+import math
 import unicodedata
+from functools import lru_cache
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -81,9 +83,18 @@ def prep(text: str | None) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+@lru_cache(maxsize=2048)
 def term_pattern(term: str) -> re.Pattern:
     """Coincidencia de palabra completa: 'java' no coincide con 'javascript', ni 'qa' con 'aqua'."""
-    return re.compile(r"(?<![a-z0-9])" + re.escape(prep(term)) + r"(?![a-z0-9#+])")
+    groups = (
+        ("next.js", "nextjs", "next js"), ("node.js", "nodejs", "node js"),
+        ("express.js", "expressjs", "express js"), ("vue.js", "vuejs", "vue js"),
+        ("html", "html5"), ("css", "css3"), ("gcp", "google cloud platform"),
+        ("frontend", "front end"), ("backend", "back end"), ("fullstack", "full stack"),
+    )
+    normalized = prep(term)
+    aliases = next((g for g in groups if normalized in g), (normalized,))
+    return re.compile(r"(?<![a-z0-9])(?:" + "|".join(re.escape(t) for t in aliases) + r")(?![a-z0-9#+])")
 
 
 def _first_match(patterns: list[tuple[str, re.Pattern]], text: str) -> str | None:
@@ -107,6 +118,13 @@ _YEARS_PATTERNS = [
 def required_years(description: str | None) -> int | None:
     """Años de experiencia que pide la oferta (el máximo mencionado). En un rango, el mínimo."""
     text = _strip_accents(description or "")
+    # Las preferencias y la antigüedad de la empresa no son requisitos del candidato.
+    clauses = re.split(r"[\n.!?;]+", text)
+    text = "\n".join(clause for clause in clauses if not re.search(
+        r"\b(?:preferred|nice to have|desirable|deseable|idealmente|preferiblemente)\b"
+        r"|\b(?:nuestra empresa|our company)\b.*\b(?:anos|years)\b"
+        r"|\b(?:llevamos|we have been)\b.*\b(?:anos|years)\b",
+        clause))
     values: list[int] = []
     for match in _RANGE.finditer(text):
         values.append(int(match.group(1)))
@@ -158,13 +176,30 @@ class RankingProfile:
             raise ValueError(f"level inválido: {level!r}. Usa uno de {LEVELS}")
         if english not in ENGLISH_LEVELS:
             raise ValueError(f"english inválido: {english!r}. Usa uno de {ENGLISH_LEVELS}")
+        def weight(value):
+            result = float(value)
+            if not math.isfinite(result) or not 0 <= result <= 3:
+                raise ValueError("Los pesos del ranking deben ser números entre 0 y 3")
+            return result
+
         families = []
         for name, spec in (data.get("families") or {}).items():
-            terms = [(t, term_pattern(t)) for t in (spec or {}).get("title_terms", [])]
-            families.append(_Family(name, float((spec or {}).get("weight", 1.0)), terms))
-        skills = [(str(t), float(w), term_pattern(str(t))) for t, w in (data.get("skills") or {}).items()]
+            terms = [(t, term_pattern(t)) for t in (spec or {}).get("title_terms", []) if str(t).strip()]
+            families.append(_Family(name, weight((spec or {}).get("weight", 1.0)), terms))
+        # Un alias representa la misma habilidad: conserva el mayor peso declarado.
+        unique_skills = {}
+        for t, w in (data.get("skills") or {}).items():
+            if not str(t).strip():
+                continue
+            pattern = term_pattern(str(t))
+            item = (str(t), weight(w), pattern)
+            old = unique_skills.get(pattern.pattern)
+            if old is None or item[1] > old[1]:
+                unique_skills[pattern.pattern] = item
+        skills = list(unique_skills.values())
         avoid = [(str(t), term_pattern(str(t))) for t in data.get("avoid_title") or []]
-        interest_terms = [(str(t), term_pattern(str(t))) for t in interests if str(t).strip()]
+        interest_terms = list({term_pattern(str(t)).pattern: (str(t), term_pattern(str(t)))
+                               for t in interests if str(t).strip()}.values())
         return cls(level, english, families, skills, avoid, interest_terms)
 
     @classmethod
@@ -185,6 +220,8 @@ class RankingProfile:
             if hit:
                 found.append(tier)
         # Si el título admite varios niveles ("Junior / Semi Senior"), vale el más accesible.
+        if "lead" in found:
+            return "lead"
         return min(found, key=TIER_ORDER.index) if found else None
 
     def rank(self, posting: JobPosting, now: datetime | None = None) -> Score:
@@ -209,7 +246,7 @@ class RankingProfile:
         if best:
             add(ROLE_POINTS * best[0], f"puesto de {best[1]} en el título ({best[2]})")
         else:
-            for family in self.families:
+            for family in sorted(self.families, key=lambda f: f.weight, reverse=True):
                 term = _first_match(family.terms, description)
                 if term:
                     add(ROLE_WEAK_POINTS * family.weight, f"{family.name} mencionado en la descripción ({term})")
@@ -229,13 +266,22 @@ class RankingProfile:
 
         # 3) Términos de interés (keywords de search.yml)
         interest_points, hits = 0.0, []
-        for term, pattern in self.interests:
-            if pattern.search(title):
-                interest_points += INTEREST_TITLE
-                hits.append(term)
-            elif pattern.search(description):
-                interest_points += INTEREST_DESCRIPTION
-                hits.append(term)
+        occupied = {"title": [], "description": []}
+        # Prioriza frases específicas; "software developer" y "developer" en
+        # las mismas palabras no son dos evidencias independientes.
+        for term, pattern in sorted(self.interests, key=lambda item: len(item[0]), reverse=True):
+            for area, text, value in (("title", title, INTEREST_TITLE),
+                                      ("description", description, INTEREST_DESCRIPTION)):
+                matches = list(pattern.finditer(text))
+                if not matches:
+                    continue
+                free = next((m for m in matches if not any(
+                    m.start() < end and start < m.end() for start, end in occupied[area])), None)
+                if free:
+                    occupied[area].append(free.span())
+                    interest_points += value
+                    hits.append(term)
+                break
         if hits:
             add(min(interest_points, INTERESTS_CAP), "intereses: " + ", ".join(hits[:5]))
 
@@ -264,12 +310,23 @@ class RankingProfile:
         # 7) Frescura
         if posting.posted_at:
             posted = posting.posted_at if posting.posted_at.tzinfo else posting.posted_at.replace(tzinfo=timezone.utc)
-            days = ((now or datetime.now(timezone.utc)) - posted).days
-            if days <= 3:
+            current = now or datetime.now(timezone.utc)
+            if current.tzinfo is None:
+                current = current.replace(tzinfo=timezone.utc)
+            days = (current - posted).total_seconds() / 86400
+            if 0 <= days <= 3:
                 add(5, "publicada en los últimos 3 días")
-            elif days <= 7:
+            elif 0 <= days <= 7:
                 add(3, "publicada en la última semana")
-            elif days <= 14:
+            elif 0 <= days <= 14:
                 add(1, "publicada en las últimas 2 semanas")
 
-        return Score(int(max(0, min(100, round(total)))), tuple(reasons))
+        # Una lista larga de herramientas en la descripción no demuestra que el
+        # puesto pertenezca a una familia buscada.
+        if best is None and total > 25:
+            add(25 - total, "ajuste: sin coincidencia de puesto en el título (máximo 25)")
+        if total > 100:
+            add(100 - total, "ajuste al máximo de 100")
+        elif total < 0:
+            add(-total, "ajuste al mínimo de 0")
+        return Score(int(round(total)), tuple(reasons))
