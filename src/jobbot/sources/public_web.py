@@ -92,3 +92,4 @@ class PublicWebSource(Source):
         if not robots_allowed(self._robots, url):
             raise PermissionError("robots.txt no permite consultar esta ruta")
         return self._request(url)
+

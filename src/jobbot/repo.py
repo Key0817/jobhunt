@@ -85,6 +85,27 @@ def insert_job_if_new(db: Database, p: JobPosting, score: Score | None = None) -
     return inserted
 
 
+def refresh_email_posting(db: Database, posting: JobPosting) -> None:
+    """Repair old alert summaries without replacing richer primary ATS records or user state."""
+    rows = db.query("select id, raw, company, location, country, remote from jobs where source = ? and external_id = ?", (posting.source, posting.external_id))
+    if not rows:
+        return
+    try:
+        raw = json.loads(rows[0]["raw"] or "{}")
+    except (ValueError, TypeError):
+        return
+    if raw.get("origin") != "email_alert":
+        return
+    old = rows[0]
+    codes = sorted(set(posting.raw.get("country_codes", [])) | set(raw.get("country_codes", [])))
+    metadata = {**posting.raw, "country_codes": codes, "location_needs_review": not bool(codes)}
+    with db.transaction():
+        db.execute("update jobs set title = ?, company = ?, location = ?, country = ?, remote = ?, description = ?, raw = ? where id = ?",
+                   (posting.title, posting.company or old["company"], posting.location or old["location"],
+                    posting.country or old["country"], posting.remote if posting.remote is not None else old["remote"], posting.description,
+                    json.dumps(metadata, ensure_ascii=False), old["id"]))
+
+
 def change_status(db: Database, job_id: str, new_status: str) -> None:
     if new_status not in STATUSES:
         raise ValueError(f"Estado inválido: {new_status!r}. Válidos: {', '.join(STATUSES)}")
@@ -118,12 +139,12 @@ def resolve_job_id(db: Database, prefix: str) -> str:
     raise LookupError(f"El id {prefix!r} coincide con {len(rows)} ofertas")
 
 
-EMAIL_SOURCES = ("linkedin_email", "indeed_email", "computrabajo_email", "trabajosdiarios_email", "elempleo_email")
+EMAIL_SOURCES = ("linkedin_email", "indeed_email", "computrabajo_email", "trabajosdiarios_email", "elempleo_email", "dynamitejobs_email")
 
 
 def source_display(source: str) -> str:
     labels = {"linkedin_email": "LinkedIn · correo", "indeed_email": "Indeed · correo",
-              "trabajosdiarios_email": "Trabajos Diarios · correo", "elempleo_email": "Elempleo · correo",
+              "trabajosdiarios_email": "Trabajos Diarios · correo", "elempleo_email": "Elempleo · correo", "dynamitejobs_email": "Dynamite Jobs · correo",
               "computrabajo_email": "Computrabajo · correo", "getonboard": "Get on Board",
               "greenhouse": "Greenhouse", "smartrecruiters": "SmartRecruiters",
               "lever": "Lever", "ashby": "Ashby", "workday": "Workday", "workable": "Workable", "bamboohr": "BambooHR", "breezy": "Breezy", "recruitee": "Recruitee", "public_web": "Webs de empresas",

@@ -13,8 +13,8 @@ class GmailAPIClient:
         labels = gmail_get(self._token, "labels").get("labels", [])
         return next((label["id"] for label in labels if label.get("name") == name), None)
 
-    def message_ids(self, label_id: str) -> tuple[list[str], bool]:
-        query = {"labelIds": label_id, "q": "is:unread", "maxResults": 500}
+    def message_ids(self, label_id: str, unread_only: bool = True) -> tuple[list[str], bool]:
+        query = {"labelIds": label_id, "q": "is:unread" if unread_only else "", "maxResults": 500}
         ids = []
         for _ in range(5):
             result = gmail_get(self._token, "messages", urlencode(query))

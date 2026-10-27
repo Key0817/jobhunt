@@ -6,6 +6,7 @@ from . import repo
 
 # Retain the existing namespace so the OAuth refactor does not re-import read messages.
 MESSAGE_NAMESPACE = "1"
+PARSER_VERSION = 2
 
 
 @dataclass(frozen=True)
@@ -15,23 +16,24 @@ class ImportRecord:
     digest: str
     status: str
     job_count: int
+    parser_version: int = PARSER_VERSION
 
 
-def processed_ids(db, mailbox_key, reprocess_review=False):
-    rows = db.query("select uid as message_id, status from email_imports where mailbox_key = ? and uid_validity = ?",
+def processed_ids(db, mailbox_key, reprocess_review=False, parser_version=None):
+    rows = db.query("select uid as message_id, status, parser_version from email_imports where mailbox_key = ? and uid_validity = ?",
                     (mailbox_key, MESSAGE_NAMESPACE))
     db.conn.commit()
-    return {row["message_id"] for row in rows if not (reprocess_review and row["status"] in ("needs_review", "ignored"))}
+    return {row["message_id"] for row in rows if (parser_version is None or row["parser_version"] == parser_version) and not (reprocess_review and row["status"] in ("needs_review", "ignored"))}
 
 
 def acknowledge(db, records):
     with db.transaction():
         for record in records:
             db.execute(
-                "insert into email_imports (mailbox_key, uid_validity, uid, message_hash, status, job_count, processed_at) "
-                "values (?, ?, ?, ?, ?, ?, ?) on conflict (mailbox_key, uid_validity, uid) do update set "
-                "message_hash = excluded.message_hash, status = excluded.status, job_count = excluded.job_count, processed_at = excluded.processed_at",
-                (record.mailbox_key, MESSAGE_NAMESPACE, record.message_id, record.digest, record.status, record.job_count, repo.now()),
+                "insert into email_imports (mailbox_key, uid_validity, uid, message_hash, status, job_count, processed_at, parser_version) "
+                "values (?, ?, ?, ?, ?, ?, ?, ?) on conflict (mailbox_key, uid_validity, uid) do update set "
+                "message_hash = excluded.message_hash, status = excluded.status, job_count = excluded.job_count, processed_at = excluded.processed_at, parser_version = excluded.parser_version",
+                (record.mailbox_key, MESSAGE_NAMESPACE, record.message_id, record.digest, record.status, record.job_count, repo.now(), record.parser_version),
             )
 
 
@@ -50,5 +52,9 @@ def collection_summary(db):
         last = {**row, "fetched_messages": details.get("fetched_messages", 0),
                 "more_pending": bool(details.get("more_messages_pending")),
                 "review_messages": details.get("message_statuses", {}).get("needs_review", 0),
-                "read_errors": details.get("read_errors", len(details.get("retry_uids", [])))}
+                "read_errors": details.get("read_errors", len(details.get("retry_uids", []))),
+                "cards_found": details.get("cards_found", 0), "filtered_offers": details.get("filtered_offers", 0),
+                "search_filters_applied": details.get("search_filters_applied", False),
+                "unresolved_links": details.get("unresolved_links", 0),
+                "search_results": details.get("search_results", [])}
     return {"total_offers": total, "pending_review_messages": review, "last_run": last}

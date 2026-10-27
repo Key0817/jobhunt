@@ -6,7 +6,7 @@ import JobCard from './components/JobCard';
 import EmailImportPanel from './components/EmailImportPanel';
 
 const SOURCES = [['all', 'Todas las fuentes'], ['email', 'Todas las alertas de correo'], ['linkedin_email', 'LinkedIn · correo'],
-  ['indeed_email', 'Indeed · correo'], ['computrabajo_email', 'Computrabajo · correo'], ['trabajosdiarios_email', 'Trabajos Diarios · correo'], ['getonboard', 'Get on Board'], ['greenhouse', 'Greenhouse'], ['smartrecruiters', 'SmartRecruiters'], ['lever', 'Lever'], ['ashby', 'Ashby'], ['workday', 'Workday'], ['workable', 'Workable'], ['bamboohr', 'BambooHR'], ['breezy', 'Breezy'], ['recruitee', 'Recruitee'], ['public_web', 'Webs de empresas'], ['dynamitejobs', 'Dynamite Jobs'], ['elempleo_email', 'Elempleo · correo'], ['procomer', 'Talent Costa Rica · PROCOMER']];
+  ['indeed_email', 'Indeed · correo'], ['computrabajo_email', 'Computrabajo · correo'], ['trabajosdiarios_email', 'Trabajos Diarios · correo'], ['getonboard', 'Get on Board'], ['greenhouse', 'Greenhouse'], ['smartrecruiters', 'SmartRecruiters'], ['lever', 'Lever'], ['ashby', 'Ashby'], ['workday', 'Workday'], ['workable', 'Workable'], ['bamboohr', 'BambooHR'], ['breezy', 'Breezy'], ['recruitee', 'Recruitee'], ['public_web', 'Webs de empresas'], ['dynamitejobs', 'Dynamite Jobs'], ['elempleo_email', 'Elempleo · correo'], ['dynamitejobs_email', 'Dynamite Jobs · correo'], ['procomer', 'Talent Costa Rica · PROCOMER']];
 
 export default function OffersPage({ source, onSourceChange, onMove, onViewDetail }: {
   source: string; onSourceChange: (source: string) => void;

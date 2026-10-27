@@ -1,7 +1,7 @@
 """Deterministic parsing of job-alert emails. Never follows links or invokes AI."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from email import policy
 from email.parser import BytesParser
 from email.utils import parseaddr
@@ -10,7 +10,10 @@ from html.parser import HTMLParser
 import re
 from urllib.parse import parse_qs, unquote, urlsplit
 
+from bs4 import BeautifulSoup
+
 from ..models import JobPosting
+from .mail_urls import unwrap, owned, search_link, job_candidate
 from .companies import country_codes, remote_from_location
 
 
@@ -20,6 +23,8 @@ class ParsedAlert:
     provider: str | None
     status: str
     reason: str = ""
+    search_links: list[str] = field(default_factory=list)
+    unresolved_links: int = 0
 
 
 def _domain(host: str, suffix: str) -> bool:
@@ -32,7 +37,8 @@ def sender_provider(sender: str) -> str | None:
     for provider, domains in (("linkedin", ("linkedin.com",)), ("indeed", ("indeed.com",)),
                               ("computrabajo", ("computrabajo.com", "computrabajo.co.cr")),
                               ("trabajosdiarios", ("trabajosdiarios.com", "trabajosdiarios.co.cr")),
-                              ("elempleo", ("elempleo.com",))):
+                              ("elempleo", ("elempleo.com",)),
+                              ("dynamitejobs", ("dynamitejobs.com",))):
         if any(_domain(host, domain) for domain in domains):
             return provider
     return None
@@ -41,6 +47,9 @@ def sender_provider(sender: str) -> str | None:
 def job_link(url: str, provider: str, _depth: int = 0) -> tuple[str, str] | None:
     """Only canonical, provider-owned job links. Unknown trackers stay unsupported."""
     try:
+        url = unwrap(url, provider)
+        if not owned(url, provider):
+            return None
         parts = urlsplit(url.strip())
         host = (parts.hostname or "").lower()
         if parts.scheme not in ("http", "https"):
@@ -61,6 +70,10 @@ def job_link(url: str, provider: str, _depth: int = 0) -> tuple[str, str] | None
             identifier = (query.get("jk") or query.get("vjk") or [None])[0]
             if identifier and re.fullmatch(r"[A-Za-z0-9_-]{6,64}", identifier):
                 return identifier, f"https://www.indeed.com/viewjob?jk={identifier}"
+        if provider == "dynamitejobs" and _domain(host, "dynamitejobs.com"):
+            if re.fullmatch(r"/company/[A-Za-z0-9_-]+/remote-job/[A-Za-z0-9_-]+/?", parts.path):
+                path = parts.path.rstrip("/")
+                return hashlib.sha256(path.encode()).hexdigest(), "https://dynamitejobs.com" + path
         if provider == "elempleo" and host in ("elempleo.com", "www.elempleo.com"):
             match = re.fullmatch(r"/cr/ofertas-trabajo/[^/]+/([1-9][0-9]*)/?", parts.path)
             if match:
@@ -129,7 +142,9 @@ class AlertHTML(HTMLParser):
 
 def _title(value: str) -> str | None:
     value = re.sub(r"\s+", " ", value).strip()
-    generic = {"ver oferta", "ver empleo", "ver vacante", "ver trabajo", "view job", "view jobs", "apply", "apply now", "postularme", "aplicar", "ver más", "ver mas", "learn more", "view details"}
+    generic = {"view in browser", "unsubscribe", "desde ayer", "editar", "términos", "terms", "privacy policy", "manage preferences", "email preferences", "no", "sí", "iniciar sesión", "centro de asistencia", "más información", "ver oferta", "ver empleo", "ver vacante", "ver trabajo", "view job", "view jobs", "apply", "apply now", "postularme", "aplicar", "ver más", "ver mas", "learn more", "view details"}
+    if re.search(r"^(?:este empleo es|editar perfil|pausar estos|cancelar|buscar empleos|ver todos los empleos|ver m[aá]s empleos|see all jobs|browse jobs|en los [uú]ltimos|administrar alertas|gestiona tus|haz clic aqu[ií]|manage |unsubscribe|view in browser|privacy|pol[ií]tica)", value, re.I):
+        return None
     is_button = re.match(r"^(ver (?:la )?(?:oferta|empleo|vacante|trabajo)|view (?:job|details)|apply(?: now)?|aplicar|postularme)(?:\s|$)", value, re.I)
     if not 5 <= len(value) <= 220 or value.lower() in generic or is_button or value.startswith(("http:", "https:")):
         return None
@@ -160,6 +175,24 @@ def _posting(provider, identifier, url, title, snippet, alert_date):
             company = clean[1][:200]
             marker = clean[2].replace("📍", "").strip()
             location = marker or (clean[3][:250] if len(clean) > 3 else None)
+    after = clean[1:] if clean and clean[0] == title else []
+    if provider == "indeed":
+        after = [line for line in after if not re.fullmatch(r"[0-5](?:[.,]\d)?", line)]
+    if provider in ("linkedin", "indeed") and after and not company:
+        first = after[0]
+        if not re.match(r"(?:Empresa|Company|Ubicaci[oó]n|Location)\s*:", first, re.I):
+            if "·" in first:
+                company, _, location = first.partition("·")
+                company, location = company.strip()[:200], location.strip()[:250] or location
+            elif len(after) >= 3 and after[1] == "·":
+                company, location = first[:200], after[2][:250]
+            elif len(after) >= 2 and not re.search(r"solicitud|post[uú]lese|hace \d|view job|ver oferta", first, re.I):
+                company = first[:200]
+                if not re.search(r"solicitud|post[uú]lese|hace \d|salario|por mes", after[1], re.I):
+                    location = after[1][:250]
+    if provider == "dynamitejobs" and " - " in title:
+        title, company = title.rsplit(" - ", 1)
+        title, company = title.strip(), company.strip()[:200]
     codes = country_codes(location or "")
     if provider == "trabajosdiarios" and urlsplit(url).hostname == "trabajosdiarios.co.cr" and not codes:
         codes = ["CR"]
@@ -175,7 +208,77 @@ def _posting(provider, identifier, url, title, snippet, alert_date):
     )
 
 
-def parse_alert(raw: bytes) -> ParsedAlert:
+def _html_candidates(content, provider, resolve_url=None):
+    soup = BeautifulSoup(content, "html.parser")
+    for node in soup.select("script, style, head"):
+        node.decompose()
+    records, searches, unresolved = [], [], set()
+    potential = {}
+    for anchor in soup.select("a[href]"):
+        href = str(anchor["href"])
+        target = search_link(href) if provider == "computrabajo" else None
+        if target:
+            searches.append(target)
+            continue
+        link = job_link(href, provider)
+        decoded = unwrap(href, provider)
+        label = anchor.get_text(" ", strip=True)
+        opaque_newsletter_job = provider == "dynamitejobs" and decoded.startswith(("https://t.dripemail2.com/c/", "https://t.dripemail.com/c/")) and " - " in label
+        if not link and (job_candidate(decoded, provider) or opaque_newsletter_job):
+            # Resolve only plausible vacancy titles/buttons, never feedback or account actions.
+            if _title(label) or label.lower() in ("ver empleo", "ver oferta", "view job", "más información"):
+                destination = resolve_url(decoded, provider) if resolve_url else None
+                link = job_link(destination, provider) if destination else None
+                if not link:
+                    unresolved.add(decoded)
+                    potential[id(anchor)] = (anchor, "unresolved:" + hashlib.sha256(href.encode()).hexdigest())
+        if link:
+            records.append((anchor, link))
+            potential[id(anchor)] = (anchor, link[0])
+    candidates = []
+    ancestry = {id(anchor): {id(parent) for parent in anchor.parents} for anchor, _ in potential.values()}
+    detected = {link[0] for _, link in records}
+    for anchor, link in records:
+        lines = [line.strip() for line in anchor.get_text("\n", strip=True).splitlines() if line.strip()]
+        label_title = anchor.get_text(" ", strip=True) if not anchor.find(["div", "table", "p", "h1", "h2", "h3", "h4"]) else (lines[0] if lines else "")
+        title = _title(label_title)
+        inferred_title = title is None
+        if title is None:
+            # Single-vacancy match emails may link a button instead of the heading.
+            for parent in anchor.parents:
+                if parent.name in ("body", "html", "[document]"):
+                    break
+                identities = {identity for other, identity in potential.values() if other is parent or id(parent) in ancestry[id(other)]}
+                if identities - {link[0]}:
+                    break
+                heading = parent.find(["h1", "h2", "h3", "h4", "strong"])
+                if heading and _title(heading.get_text(" ", strip=True)):
+                    title = _title(heading.get_text(" ", strip=True))
+                    break
+        if not title:
+            continue
+        card = anchor
+        for parent in anchor.parents:
+            if parent.name in ("body", "html", "[document]"):
+                break
+            identities = {identity for other, identity in potential.values() if other is parent or id(parent) in ancestry[id(other)]}
+            if identities - {link[0]}:
+                break
+            text = parent.get_text("\n", strip=True)
+            leading = [line.strip() for line in text.splitlines() if line.strip()]
+            while leading and leading[0].lower() in ("ver empleo", "ver oferta", "view job", "apply now", "más información"):
+                leading.pop(0)
+            if leading and leading[0].startswith(title):
+                card = parent
+        snippet = card.get_text("\n", strip=True)
+        if title in snippet:
+            snippet = snippet[snippet.index(title):]
+        candidates.append((int(inferred_title), link, title, snippet))
+    candidates.sort(key=lambda item: item[0])
+    return [(link, title, snippet) for _, link, title, snippet in candidates], detected, list(dict.fromkeys(searches)), len(unresolved)
+
+
+def parse_alert(raw: bytes, resolve_url=None) -> ParsedAlert:
     message = BytesParser(policy=policy.default).parsebytes(raw)
     provider = sender_provider(str(message.get("From", "")))
     if provider is None:
@@ -186,33 +289,17 @@ def parse_alert(raw: bytes) -> ParsedAlert:
     content = body.get_content()
     if not isinstance(content, str):
         return ParsedAlert([], provider, "needs_review", "unsupported_body")
-    candidates = []
-    detected = set()
+    candidates, detected, searches, unresolved = [], set(), [], 0
     if body.get_content_type() == "text/html":
-        parser = AlertHTML()
-        parser.feed(content)
-        text = "".join(parser.fragments)
-        links = [(job_link(href, provider), label, start, end) for href, label, start, end in parser.links]
-        links = [item for item in links if item[0] is not None]
-        detected.update(item[0][0] for item in links)
-        for index, (link, label, start, end) in enumerate(links):
-            if provider == "trabajosdiarios":
-                card = text[start:end]
-                lines = [line.strip() for line in card.splitlines() if line.strip()]
-                title = _title(lines[0]) if lines else None
-                if title:
-                    candidates.append((link, title, card))
-                continue
-            title = _title(label)
-            if title:
-                following = next((item[2] for item in links[index + 1:] if item[0][0] != link[0]), len(text))
-                candidates.append((link, title, text[start:min(following, end + 1600)]))
+        candidates, detected, searches, unresolved = _html_candidates(content, provider, resolve_url)
     else:
-        # Plain-text cards: title on the first line of a block, then metadata/link.
-        for url in re.findall(r"https?://[^\s<>\"]+", content):
+        for url in re.findall(r'https?://[^\s<>\"]+', content):
             link = job_link(url.rstrip(".,)"), provider)
             if link:
                 detected.add(link[0])
+            target = search_link(url) if provider == "computrabajo" else None
+            if target:
+                searches.append(target)
         for block in re.split(r"\n\s*\n", content):
             lines = [line.strip() for line in block.splitlines() if line.strip()]
             if not lines:
@@ -220,13 +307,13 @@ def parse_alert(raw: bytes) -> ParsedAlert:
             title = _title(lines[0])
             if title is None:
                 continue
-            block_links = [job_link(url.rstrip(".,)"), provider) for url in re.findall(r"https?://[^\s<>\"]+", block)]
-            block_links = [link for link in block_links if link]
-            if len({link[0] for link in block_links}) == 1:
-                candidates.append((block_links[0], title, block))
+            links = [job_link(url.rstrip(".,)"), provider) for url in re.findall(r'https?://[^\s<>\"]+', block)]
+            links = [link for link in links if link]
+            if len({link[0] for link in links}) == 1:
+                candidates.append((links[0], title, block))
     postings = {}
     for (identifier, url), title, snippet in candidates:
         postings.setdefault(identifier, _posting(provider, identifier, url, title, snippet, message.get("Date")))
-    complete = bool(postings) and not (detected - postings.keys())
+    complete = bool(postings) and not (detected - postings.keys()) and not searches and not unresolved
     return ParsedAlert(list(postings.values()), provider, "parsed" if complete else "needs_review",
-                       "" if complete else "unrecognized_template_or_links")
+                       "" if complete else "search_link" if searches else "unrecognized_template_or_links", list(dict.fromkeys(searches)), unresolved)

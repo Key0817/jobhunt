@@ -2,8 +2,10 @@
 from datetime import datetime, timezone
 from dataclasses import replace
 import hashlib
+import json
 import re
-from urllib.parse import urljoin, urlsplit, urlunsplit
+from urllib.parse import urljoin, urlsplit, urlunsplit, quote
+from xml.etree import ElementTree
 
 from bs4 import BeautifulSoup
 
@@ -78,81 +80,231 @@ class PublicCompanySource(PublicWebSource):
         self.name = "public_web:" + company.id
         self.host = urlsplit(company.careers_url).hostname or ""
 
+    def _same_site(self, url):
+        try:
+            return same_site(url, self.host)
+        except ValueError:
+            return False
+
+    def _clean_url(self, url):
+        parts = urlsplit(url)
+        return urlunsplit(("https", self.host, quote(parts.path, safe="/%:@-._~!$&'()*+,;="),
+                              quote(parts.query, safe="=&%:@/?-._~!$'()*+,;"), ""))
+
+    def prepare(self, db):
+        self._previous = None
+        rows = db.query("select details from runs where source = ? order by finished_at desc limit 1", (self.name,))
+        db.conn.commit()
+        if rows:
+            try:
+                self._previous = json.loads(rows[0]["details"] or "{}")
+            except (ValueError, TypeError):
+                pass
+
+    def after_store(self, db):
+        self._details["checkpoint_safe"] = True
+
     def fetch(self, query):
+        from .public_adapters import amazon, oracle, html_listing, detail_posting, phenom_links
         self._start()
-        queue = [self.company.careers_url]
+        if re.fullmatch(r"[a-zA-Z0-9.-]+\.oraclecloud\.com", self.host):
+            result = oracle(self, query)
+            if result is not None:
+                self._details = result.details
+                return result
+        if self.host.removeprefix("www.") == "amazon.jobs":
+            try:
+                result = amazon(self, query)
+                if result is not None:
+                    self._details = result.details
+                    return result
+            except Exception as error:
+                self._details = {"adapter": "amazon_search", "failures": [self._failure(error)]}
+                return FetchResult(status="partial", details=self._details)
+        key = hashlib.sha256(json.dumps([self.company.careers_url, query.keywords, query.countries,
+            query.residence_country, query.include_remote_latam], sort_keys=True).encode()).hexdigest()
+        queue = [{"url": self._clean_url(self.company.careers_url)}]
         seen, found, failures = set(), {}, []
-        schemas_found = fetched = delegated = 0
+        old = getattr(self, "_previous", None)
+        resumed = bool(old and old.get("checkpoint_safe") and old.get("cursor_key") == key and old.get("pending_items"))
+        if resumed:
+            queue = [item for item in old["pending_items"] if isinstance(item, dict) and self._same_site(item.get("url", ""))]
+            seen = set(old.get("visited_urls", []))
+        schemas_found = fetched = delegated = listings = 0
         delegated_boards = set()
-        while queue and len(seen) < self.MAX_PAGES:
-            url = queue.pop(0)
+        retry = []
+        processed = 0
+        while queue and processed < self.MAX_PAGES:
+            item = queue.pop(0)
+            url = item["url"]
             if url in seen:
                 continue
+            if self._clock() >= self._deadline:
+                queue.insert(0, item)
+                failures.append("time_limit_reached")
+                break
+            processed += 1
             seen.add(url)
             try:
                 page = self._get(url)
                 fetched += 1
+                if page.lstrip().startswith(("<?xml", "<urlset", "<sitemapindex")):
+                    xml = ElementTree.fromstring(page)
+                    locations = [node.text.strip() for node in xml.iter() if node.tag.rsplit("}", 1)[-1] == "loc" and node.text]
+                    is_index = xml.tag.rsplit("}", 1)[-1] == "sitemapindex"
+                    locations = [u for u in locations if self._same_site(u) and (
+                        re.search(r"job|career|position|vacan|oferta|empleo|opening", urlsplit(u).path, re.I)
+                        or (is_index and "sitemap" in urlsplit(u).path.lower()))]
+                    if len(locations) > 2000:
+                        failures.append("sitemap_limit_reached")
+                    queue += [{"url": self._clean_url(u)} for u in locations[:2000] if self._clean_url(u) not in seen]
+                    continue
                 schemas = list(job_schema(page))
                 schemas_found += len(schemas)
-                for item in schemas:
+                for schema in schemas:
                     try:
-                        posting = structured_posting(item, self.company, url)
+                        posting = structured_posting(schema, self.company, url)
                         if posting and eligible(posting, query) and keyword_match(posting.title, query):
                             found[posting.external_id] = posting
                     except (ValueError, TypeError, AttributeError):
                         failures.append("invalid_job_schema")
-                # Details do not lead back to the full website or recommendation loops.
                 if schemas:
+                    continue
+                if item.get("metadata"):
+                    posting = detail_posting(self, page, url, item["metadata"], item["adapter"])
+                    schemas_found += 1
+                    if eligible(posting, query):
+                        found[posting.external_id] = posting
+                    continue
+                listing = html_listing(self, query, page, url)
+                if listing is not None:
+                    adapter, candidates, following, listing_url = listing
+                    listings += 1
+                    # Mark filtered first pages as visited too: don't revisit them through navigation.
+                    seen.add(self._clean_url(listing_url))
+                    queue += [{"url": self._clean_url(target), "metadata": metadata, "adapter": adapter}
+                              for target, metadata in candidates.items() if self._clean_url(target) not in seen]
+                    queue += [{"url": self._clean_url(target)} for target in following if self._clean_url(target) not in seen]
                     continue
                 soup = BeautifulSoup(page, "html.parser")
                 from ..catalog import company_from_url
-                # Follow only recognized public ATS boards, not arbitrary external links.
-                embedded = [node.get("href") or node.get("src") or "" for node in soup.select("a[href], iframe[src]")]
+                embedded = [node.get("href") or node.get("src") or "" for node in soup.select("a[href], iframe[src], script[src]")]
+                direct_embeds = {urljoin(url, node.get("src") or "") for node in soup.select("iframe[src], script[src]")}
+                published_links, empty_board = phenom_links(page)
+                if empty_board:
+                    listings += 1
+                    continue
+                embedded += published_links
                 embedded += re.findall(r"https://(?:job-boards(?:\.eu)?\.greenhouse\.io|boards\.greenhouse\.io|jobs\.lever\.co|jobs\.ashbyhq\.com)/[^\s\"<>]+", page)
+                board_found = False
                 for target in embedded:
-                    board = company_from_url(self.company.name, urljoin(url, target))
-                    if not board or board.platform == "public_web" or (board.platform, board.board_id) in delegated_boards or len(delegated_boards) >= 2:
+                    try:
+                        board = company_from_url(self.company.name, urljoin(url, target))
+                    except ValueError:
                         continue
-                    delegated_boards.add((board.platform, board.board_id))
+                    if not board or board.platform == "public_web":
+                        continue
+                    # An aggregator linking to one employer is not that employer's
+                    # complete board. Only delegate embeds or matching employers.
+                    employer = re.sub(r"[^a-z0-9]", "", self.company.id.lower())
+                    token = re.sub(r"[^a-z0-9]", "", board.board_id.lower())
+                    tenant = (urlsplit(board.careers_url).hostname or "").split(".")[0]
+                    authoritative = (urljoin(url, target) in direct_embeds or target in published_links
+                        or (len(employer) >= 3 and (employer in token or employer in tenant)))
+                    if not authoritative:
+                        continue
+                    identity = (board.platform, board.board_id, board.api_region,
+                        urlsplit(board.careers_url).hostname if board.platform == "workday" else "")
+                    if identity in delegated_boards:
+                        continue
+                    if len(delegated_boards) >= 2:
+                        failures.append("embedded_board_limit_reached")
+                        continue
+                    delegated_boards.add(identity)
                     try:
                         result = self._delegate(board, query)
                         delegated += 1
+                        board_found = True
                         for posting in result:
-                            identity = board.platform + ":" + str(posting.external_id)
-                            found[identity] = replace(posting, source=self.name, external_id=identity,
+                            identity_key = board.platform + ":" + (urlsplit(board.careers_url).hostname or "") + ":" + str(posting.external_id)
+                            found[identity_key] = replace(posting, source=self.name, external_id=identity_key,
                                 raw={**posting.raw, "origin_platform": board.platform, "platform": "public_web"})
                         if result.status != "success":
                             failures.append("embedded_board_partial")
                     except Exception as error:
-                        failures.append("embedded_board:" + type(error).__name__)
+                        failures.append("embedded_board:" + self._failure(error))
+                # A company page with a complete public ATS board does not need an
+                # unrelated crawl of its corporate navigation.
+                if board_found:
+                    continue
                 candidates = []
                 for anchor in soup.select("a[href]"):
-                    target = urljoin(url, anchor["href"])
-                    if not same_site(target, self.host):
+                    try:
+                        target = urljoin(url, anchor["href"])
+                        if not self._same_site(target):
+                            continue
+                        target = self._clean_url(target)
+                    except ValueError:
                         continue
                     parts = urlsplit(target)
-                    target = urlunsplit(("https", self.host, parts.path, parts.query, ""))
-                    if target in seen or target in queue or re.search(r"(?:login|sign.?in|register|privacy|policy|terms|unsubscribe|apply$|\.pdf$)", parts.path, re.I):
+                    if target in seen or re.search(r"(?:login|sign.?in|register|privacy|policy|terms|unsubscribe|apply$|\.pdf$)", parts.path, re.I):
                         continue
                     label = anchor.get_text(" ", strip=True)
                     looks_like_job = bool(re.search(r"(?:/job[s]?/|/position[s]?/|/vacan[ct]|/career[s]?/|/employment/|/o/|/oferta|/requisition|/remote-job|/opening|/trabajo|/apply/)", parts.path, re.I))
-                    if not looks_like_job:
-                        continue
-                    priority = 0 if keyword_match(label + " " + parts.path.replace("-", " "), query) else 1
-                    candidates.append((priority, target))
-                queue.extend(target for _, target in sorted(dict.fromkeys(candidates))[:self.MAX_LINKS] if target not in queue)
+                    if looks_like_job:
+                        priority = 0 if keyword_match(label + " " + parts.path.replace("-", " "), query) else 1
+                        candidates.append((priority, target))
+                distinct = list(dict.fromkeys(sorted(candidates)))
+                if len(distinct) > self.MAX_LINKS:
+                    failures.append("link_limit_reached")
+                queue += [{"url": target} for _, target in distinct[:self.MAX_LINKS]]
+                if not candidates and url == self._clean_url(self.company.careers_url):
+                    # Prefer sitemap URLs explicitly published by this host.
+                    maps = re.findall(r"(?im)^sitemap:\s*(https://\S+)", self._robots or "")
+                    maps += [urljoin(url, node["href"]) for node in soup.select("link[rel='sitemap'][href]")]
+                    maps = [m for m in maps if self._same_site(m)]
+                    queue += [{"url": self._clean_url(m)} for m in maps[:3] if self._clean_url(m) not in seen]
             except Exception as error:
-                failures.append(type(error).__name__)
-            if self._clock() >= self._deadline:
-                failures.append("time_limit_reached")
-                break
+                failures.append(self._failure(error))
+                # Retry network/detail errors on the next run, without redoing successful pages.
+                retry.append(item)
+                seen.discard(url)
+        queue = list({entry["url"]: entry for entry in queue if entry["url"] not in seen}.values())
         if queue:
             failures.append("page_limit_reached")
-        if not schemas_found and not delegated:
+        evidence = bool(schemas_found or delegated or listings or (resumed and old.get("coverage_evidence")))
+        if resumed and old.get("coverage_gaps"):
+            failures.extend(old["coverage_gaps"])
+        if not evidence:
             failures.append("no_readable_job_schema")
-        return FetchResult(found.values(), status="partial" if failures else "success", details={
-            "pages_fetched": fetched, "job_schemas": schemas_found, "eligible": len(found),
-            "delegated_boards": delegated, "requires_adapter_review": not bool(schemas_found or delegated), "failures": list(dict.fromkeys(failures))[:40]})
+        pending = list({entry["url"]: entry for entry in queue + retry}.values())
+        self._details = {"pages_fetched": fetched, "job_schemas": schemas_found, "eligible": len(found),
+            "delegated_boards": delegated, "recognized_lists": listings,
+            "requires_adapter_review": not evidence, "coverage_evidence": evidence,
+            "coverage_gaps": [f for f in dict.fromkeys(failures) if f in {"link_limit_reached", "embedded_board_limit_reached", "sitemap_limit_reached"}],
+            "resumed": resumed, "cursor_key": key, "pending_items": pending[:2000],
+            "pending_pages": len(pending),
+            "visited_urls": sorted(seen)[-5000:] if pending else [], "cycle_complete": not pending and not failures,
+            "failures": list(dict.fromkeys(failures))[:40]}
+        return FetchResult(found.values(), status="partial" if failures else "success", details=self._details)
+
+    @staticmethod
+    def _failure(error):
+        from urllib.error import HTTPError, URLError
+        from ssl import SSLCertVerificationError
+        from socket import gaierror
+        if isinstance(error, HTTPError):
+            return f"http_{error.code}"
+        if isinstance(error, PermissionError):
+            return "robots_blocked"
+        reason = error.reason if isinstance(error, URLError) else error
+        if isinstance(reason, SSLCertVerificationError):
+            return "tls_certificate_error"
+        if isinstance(reason, gaierror):
+            return "dns_error"
+        if isinstance(reason, TimeoutError):
+            return "timeout"
+        return type(error).__name__
 
     def _delegate(self, company, query):
         from .greenhouse import GreenhouseSource
@@ -161,7 +313,12 @@ class PublicCompanySource(PublicWebSource):
         from .ashby import AshbySource
         from .workday import WorkdaySource
         from .career_feeds import CareerFeedSource
-        budget = max(0.1, min(15, self._deadline - self._clock()))
+        # Board links often point to a specific vacancy or /login. Detail URLs
+        # must be built from the board root rather than appending to that path.
+        host = urlsplit(company.careers_url).hostname
+        if company.platform in {"workday", "greenhouse", "lever", "ashby", "smartrecruiters"}:
+            company = replace(company, careers_url=f"https://{host}/{company.board_id}")
+        budget = max(0.1, self._deadline - self._clock())
         if company.platform in ("workable", "bamboohr", "breezy", "recruitee"):
             source = CareerFeedSource(company, fetch_text=self._fetch_text)
             source.max_runtime = budget

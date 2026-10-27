@@ -235,15 +235,28 @@ class ImportTests(unittest.TestCase):
         self.assertEqual(result.inserted, 0)
         self.assertEqual(len(self.db.query("select * from email_imports")), 2)
 
-    def test_pre_refactor_oauth_checkpoint_is_respected(self):
+    def test_duplicate_digest_cards_keep_the_richer_metadata(self):
+        short = '<div><a href="https://www.linkedin.com/jobs/view/12345">Backend Developer</a></div>'
+        source, _ = self.source(FakeGmail({"one": email(LINKEDIN), "two": email(short)}))
+        result, = collect(self.db, [source], QUERY)
+        self.assertEqual(result.inserted, 1)
+        self.assertEqual(repo.list_jobs(self.db)[0]["company"], "Acme")
+        source, _ = self.source(FakeGmail({"three": email(short)}))
+        collect(self.db, [source], QUERY)
+        self.assertEqual(repo.list_jobs(self.db)[0]["company"], "Acme")
+
+    def test_old_parser_checkpoint_is_reprocessed_once(self):
         from jobbot import repo
         mailbox_key = hashlib.sha256(b"gmail-api|test@gmail.com|JobAlerts").hexdigest()
-        self.db.execute("insert into email_imports values (?,?,?,?,?,?,?)", (mailbox_key,"1","one","old-digest","parsed",1,repo.now()))
+        self.db.execute("insert into email_imports (mailbox_key,uid_validity,uid,message_hash,status,job_count,processed_at) values (?,?,?,?,?,?,?)", (mailbox_key,"1","one","old-digest","parsed",1,repo.now()))
         self.db.conn.commit()
         source, client = self.source()
         result, = collect(self.db, [source], QUERY)
-        self.assertEqual(result.inserted, 0)
-        self.assertFalse(any(call[0] == "raw" for call in client.calls))
+        self.assertEqual(result.inserted, 1)
+        count = len([call for call in client.calls if call[0] == "raw"])
+        again, = collect(self.db, [source], QUERY)
+        self.assertEqual(again.inserted, 0)
+        self.assertEqual(len([call for call in client.calls if call[0] == "raw"]), count)
 
     def test_message_error_preserves_other_messages_and_retries_failure(self):
         client = FakeGmail({"one": email(LINKEDIN), "two": email(LINKEDIN.replace("12345", "23456"))}, failure_id="two")
@@ -272,7 +285,8 @@ class ImportTests(unittest.TestCase):
         self.assertTrue(job["location_needs_review"])
 
     def test_known_foreign_country_is_filtered(self):
-        source, _ = self.source(FakeGmail({"one": email(LINKEDIN.replace("Costa Rica", "United States"))}))
+        from dataclasses import replace
+        source, _ = self.source(FakeGmail({"one": email(LINKEDIN.replace("Costa Rica", "United States"))}), replace(SETTINGS, apply_search_filters=True))
         result, = collect(self.db, [source], QUERY)
         self.assertEqual(result.inserted, 0)
         self.assertEqual(self.db.query("select status from email_imports")[0]["status"], "filtered")
