@@ -16,7 +16,26 @@ concurrency:
 jobs:
   collect:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        sources:
+          - getonboard,dynamitejobs,procomer,email_alerts
+          - greenhouse
+          - smartrecruiters
+          - lever,ashby
+          - workday
+          - workable,bamboohr,breezy,recruitee
+          - public_web_0
+          - public_web_1
+          - public_web_2
+          - public_web_3
+          - public_web_4
+          - public_web_5
+          - public_web_6
+          - public_web_7
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       MAIL_MAX_MESSAGES: ${{ vars.MAIL_MAX_MESSAGES || '50' }}
@@ -37,4 +56,4 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -e .
-      - run: python -m jobbot collect
+      - run: python -m jobbot collect --sources "${{ matrix.sources }}"

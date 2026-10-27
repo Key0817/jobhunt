@@ -11,6 +11,7 @@ import re
 import time
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+from urllib.parse import urlsplit
 
 import yaml
 
@@ -19,7 +20,7 @@ from .base import Source
 from .getonboard import COUNTRY_CODES
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
-PLATFORMS = {"greenhouse", "smartrecruiters"}
+PLATFORMS = {"greenhouse", "smartrecruiters", "lever", "ashby", "workday", "workable", "bamboohr", "breezy", "recruitee", "public_web"}
 
 
 @dataclass(frozen=True)
@@ -30,6 +31,7 @@ class Company:
     board_id: str
     careers_url: str
     include_global_remote: bool = True
+    api_region: str = "us"
 
 
 def load_companies(path: str | Path | None = None) -> list[Company]:
@@ -50,7 +52,13 @@ def load_companies(path: str | Path | None = None) -> list[Company]:
             raise ValueError(f"Plataforma no soportada: {row['platform']}")
         if not all(re.fullmatch(r"[A-Za-z0-9_-]+", row[key]) for key in ("id", "board_id")):
             raise ValueError("id y board_id solo pueden contener letras, números, guiones y guion bajo.")
-        board = (row["platform"], row["board_id"])
+        region = row.get("api_region", "us")
+        if region not in ("us", "eu"):
+            raise ValueError("api_region debe ser us o eu.")
+        host = urlsplit(row["careers_url"]).hostname
+        if row["platform"] == "workday" and not (host and re.fullmatch(r"[a-zA-Z0-9-]+\.wd[0-9]+\.myworkdayjobs\.com", host)):
+            raise ValueError("Workday requiere una URL pública myworkdayjobs.com válida.")
+        board = (row["platform"], row["board_id"], host if row["platform"] == "workday" else region)
         if row["id"] in ids or board in boards:
             raise ValueError("Empresa o board_id duplicado en companies.yml.")
         ids.add(row["id"])
@@ -59,7 +67,7 @@ def load_companies(path: str | Path | None = None) -> list[Company]:
         if not isinstance(include_global, bool):
             raise ValueError("include_global_remote debe ser booleano.")
         result.append(Company(**{key: row[key] for key in ("id", "name", "platform", "board_id", "careers_url")},
-                              include_global_remote=include_global))
+                              include_global_remote=include_global, api_region=region))
     return result
 
 
@@ -121,14 +129,21 @@ class CompanySource(Source):
         self._deadline = self._clock() + self._max_runtime
 
     def _get(self, url: str):
+        return self._request(url)
+
+    def _post(self, url: str, payload: dict):
+        return self._request(url, payload)
+
+    def _request(self, url: str, payload=None):
         for attempt in range(2):
             remaining = self._deadline - self._clock()
             if remaining <= 0:
                 raise TimeoutError("Presupuesto de tiempo de la empresa agotado")
             try:
                 if self._fetch_json:
-                    return self._fetch_json(url)
-                request = Request(url, headers={"Accept": "application/json", "User-Agent": "jobbot-personal/0.2"})
+                    return self._fetch_json(url, payload) if payload is not None else self._fetch_json(url)
+                request = Request(url, data=json.dumps(payload).encode() if payload is not None else None,
+                                  headers={"Accept": "application/json", "Content-Type": "application/json", "User-Agent": "jobbot-personal/0.3"})
                 with urlopen(request, timeout=min(10, remaining)) as response:
                     raw = response.read(8_000_001)
                 if len(raw) > 8_000_000:

@@ -107,7 +107,6 @@ def to_posting(job: dict) -> JobPosting | None:
         url=url,
         company=_company_name(attrs.get("company")),
         # Un solo país reconocido -> lo usamos. Varios o ninguno ("Remoto") -> None.
-        # La lista completa queda en location y en raw (se revisa en la Fase 2).
         country=codes[0] if len(codes) == 1 else None,
         location=", ".join(names) or None,
         remote=remote if isinstance(remote, bool) else None,

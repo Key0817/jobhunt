@@ -22,8 +22,8 @@ from .sources import build_sources
 log = logging.getLogger("jobbot")
 
 
-def _wait_for_service(url: str, process: subprocess.Popen[bytes], name: str) -> None:
-    deadline = time.monotonic() + 30
+def _wait_for_service(url: str, process: subprocess.Popen[bytes], name: str, timeout_seconds: float = 30) -> None:
+    deadline = time.monotonic() + timeout_seconds
     last_error: OSError | None = None
     while time.monotonic() < deadline:
         return_code = process.poll()
@@ -39,7 +39,7 @@ def _wait_for_service(url: str, process: subprocess.Popen[bytes], name: str) -> 
             last_error = exc
             time.sleep(0.2)
     raise RuntimeError(
-        f"{name} no respondió en 30 segundos ({last_error})."
+        f"{name} no respondió en {timeout_seconds:g} segundos ({last_error})."
     ) from last_error
 
 
@@ -109,7 +109,7 @@ def _serve() -> int:
             cwd=frontend_dir,
         )
         processes.append(frontend_process)
-        _wait_for_service(frontend_url, frontend_process, "El frontend")
+        _wait_for_service(frontend_url, frontend_process, "El frontend", timeout_seconds=90)
 
         print(f"JobHunt está disponible en {frontend_url}", flush=True)
         if not webbrowser.open_new_tab(frontend_url):

@@ -1,4 +1,3 @@
-
 def select_profile_key(job_title: str, description: str = "") -> str:
     # El título tiene más peso que las tecnologías mencionadas
     # en la descripción de la oferta.

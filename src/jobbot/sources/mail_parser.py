@@ -31,7 +31,8 @@ def sender_provider(sender: str) -> str | None:
     host = address.rsplit("@", 1)[-1].lower() if "@" in address else ""
     for provider, domains in (("linkedin", ("linkedin.com",)), ("indeed", ("indeed.com",)),
                               ("computrabajo", ("computrabajo.com", "computrabajo.co.cr")),
-                              ("trabajosdiarios", ("trabajosdiarios.com", "trabajosdiarios.co.cr"))):
+                              ("trabajosdiarios", ("trabajosdiarios.com", "trabajosdiarios.co.cr")),
+                              ("elempleo", ("elempleo.com",))):
         if any(_domain(host, domain) for domain in domains):
             return provider
     return None
@@ -60,6 +61,10 @@ def job_link(url: str, provider: str, _depth: int = 0) -> tuple[str, str] | None
             identifier = (query.get("jk") or query.get("vjk") or [None])[0]
             if identifier and re.fullmatch(r"[A-Za-z0-9_-]{6,64}", identifier):
                 return identifier, f"https://www.indeed.com/viewjob?jk={identifier}"
+        if provider == "elempleo" and host in ("elempleo.com", "www.elempleo.com"):
+            match = re.fullmatch(r"/cr/ofertas-trabajo/[^/]+/([1-9][0-9]*)/?", parts.path)
+            if match:
+                return "cr:" + match.group(1), "https://www.elempleo.com" + parts.path.rstrip("/")
         if provider == "trabajosdiarios" and any(_domain(host, domain) for domain in ("trabajosdiarios.com", "trabajosdiarios.co.cr")):
             match = re.fullmatch(r"/trabajo/([1-9][0-9]*)(/[^/?#]+)?/?", parts.path)
             if match and parts.username is None and parts.password is None and parts.port in (None, 80, 443):

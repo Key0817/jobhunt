@@ -3,6 +3,16 @@ sources:
   - getonboard
   - greenhouse
   - smartrecruiters
+  - lever
+  - ashby
+  - workday
+  - workable
+  - bamboohr
+  - breezy
+  - recruitee
+  - public_web
+  - dynamitejobs
+  - procomer
   - email_alerts  # Se activa al conectar Gmail desde Ajustes.
 
 residence_country: CR 

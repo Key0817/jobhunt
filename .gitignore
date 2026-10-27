@@ -10,3 +10,5 @@ __pycache__/
 # Bases de datos locales y CVs generados
 *.db
 generated/
+# Inspecciones temporales de fuentes públicas
+.tmp/

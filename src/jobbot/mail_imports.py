@@ -47,7 +47,6 @@ def collection_summary(db):
             details = json.loads(row.pop("details") or "{}")
         except (TypeError, ValueError):
             details = {}
-        # Only counts are exposed; mailbox hashes, tokens and message IDs stay private.
         last = {**row, "fetched_messages": details.get("fetched_messages", 0),
                 "more_pending": bool(details.get("more_messages_pending")),
                 "review_messages": details.get("message_statuses", {}).get("needs_review", 0),

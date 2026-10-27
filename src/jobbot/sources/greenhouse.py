@@ -10,7 +10,9 @@ from .getonboard import html_to_text
 class GreenhouseSource(CompanySource):
     def fetch(self, query: SearchQuery) -> list[JobPosting]:
         self._start()
-        payload = self._get(f"https://boards-api.greenhouse.io/v1/boards/{self.company.board_id}/jobs?content=true")
+        # The documented public API serves both US and EU career-board URLs.
+        domain = "boards-api.greenhouse.io"
+        payload = self._get(f"https://{domain}/v1/boards/{self.company.board_id}/jobs?content=true")
         if not isinstance(payload, dict) or not isinstance(payload.get("jobs"), list):
             raise ValueError("Greenhouse devolvió un listado inválido")
         postings, invalid = [], 0

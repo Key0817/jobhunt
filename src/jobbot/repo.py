@@ -118,14 +118,16 @@ def resolve_job_id(db: Database, prefix: str) -> str:
     raise LookupError(f"El id {prefix!r} coincide con {len(rows)} ofertas")
 
 
-EMAIL_SOURCES = ("linkedin_email", "indeed_email", "computrabajo_email", "trabajosdiarios_email")
+EMAIL_SOURCES = ("linkedin_email", "indeed_email", "computrabajo_email", "trabajosdiarios_email", "elempleo_email")
 
 
 def source_display(source: str) -> str:
     labels = {"linkedin_email": "LinkedIn · correo", "indeed_email": "Indeed · correo",
-              "trabajosdiarios_email": "Trabajos Diarios · correo",
+              "trabajosdiarios_email": "Trabajos Diarios · correo", "elempleo_email": "Elempleo · correo",
               "computrabajo_email": "Computrabajo · correo", "getonboard": "Get on Board",
-              "greenhouse": "Greenhouse", "smartrecruiters": "SmartRecruiters"}
+              "greenhouse": "Greenhouse", "smartrecruiters": "SmartRecruiters",
+              "lever": "Lever", "ashby": "Ashby", "workday": "Workday", "workable": "Workable", "bamboohr": "BambooHR", "breezy": "Breezy", "recruitee": "Recruitee", "public_web": "Webs de empresas",
+              "dynamitejobs": "Dynamite Jobs", "elempleo": "Elempleo", "procomer": "Talent Costa Rica · PROCOMER"}
     platform, _, company = source.partition(":")
     label = labels.get(platform, platform)
     return f"{label} · {company}" if company else label
@@ -137,7 +139,7 @@ def source_condition(source: str) -> tuple[str, list]:
         values = list(EMAIL_SOURCES)
         markers = ",".join("?" for _ in values)
         return (f"(jobs.source in ({markers}) or exists (select 1 from job_sources js where js.job_id = jobs.id and js.source in ({markers})))", values + values)
-    if source in ("greenhouse", "smartrecruiters"):
+    if source in ("greenhouse", "smartrecruiters", "lever", "ashby", "workday", "workable", "bamboohr", "breezy", "recruitee", "public_web"):
         return ("(jobs.source like ? or exists (select 1 from job_sources js where js.job_id = jobs.id and js.source like ?))", [source + ":%", source + ":%"])
     return ("(jobs.source = ? or exists (select 1 from job_sources js where js.job_id = jobs.id and js.source = ?))", [source, source])
 

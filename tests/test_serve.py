@@ -50,6 +50,11 @@ class ServeTests(unittest.TestCase):
         self.assertEqual(api_process.returncode, 0)
         self.assertEqual(frontend_process.returncode, 0)
 
+    def test_cold_frontend_can_become_ready_after_thirty_seconds(self):
+        process = FakeProcess()
+        with patch.object(cli.time, "monotonic", side_effect=[0, 1, 40]), patch.object(cli.time, "sleep"), patch.object(cli.urllib.request, "urlopen", side_effect=[TimeoutError(), unittest.mock.MagicMock()]):
+            cli._wait_for_service("http://127.0.0.1:5173", process, "El frontend", timeout_seconds=90)
+
     def test_occupied_frontend_port_does_not_launch_api_or_browser(self):
         def occupied(port, name):
             if port == 5173:
