@@ -3,7 +3,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .models import STATUSES, CV_STATUSES
 
@@ -18,6 +18,12 @@ class CVUpdateStatus(BaseModel):
     status: CVStatus
 
 
+class JobOrigin(BaseModel):
+    source: str
+    label: str
+    url: str
+
+
 class JobResponse(BaseModel):
     id: str
     title: str
@@ -26,6 +32,12 @@ class JobResponse(BaseModel):
     score: float
     url: str
     source: str
+    source_display: str = ""
+    origins: list[JobOrigin] = Field(default_factory=list)
+    remote: Optional[bool] = None
+    detected_at: Optional[datetime] = None
+    description_incomplete: bool = False
+    location_needs_review: bool = False
     country: Optional[str] = None
     location: Optional[str] = None
     posted_at: Optional[datetime] = None

@@ -4,6 +4,7 @@ import argparse
 import json
 import logging
 import shutil
+import socket
 import subprocess
 import sys
 import time
@@ -30,6 +31,9 @@ def _wait_for_service(url: str, process: subprocess.Popen[bytes], name: str) -> 
             raise RuntimeError(f"{name} terminó durante el inicio (código {return_code}).")
         try:
             with urllib.request.urlopen(url, timeout=1):
+                return_code = process.poll()
+                if return_code is not None:
+                    raise RuntimeError(f"{name} terminó durante el inicio (código {return_code}).")
                 return
         except OSError as exc:
             last_error = exc
@@ -50,6 +54,21 @@ def _stop_process(process: subprocess.Popen[bytes]) -> None:
         process.wait()
 
 
+def _ensure_port_available(port: int, service: str) -> None:
+    """Fail before starting children instead of mistaking an existing server for ours."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            probe.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        try:
+            probe.bind(("127.0.0.1", port))
+        except OSError:
+            raise RuntimeError(
+                f"El puerto {port} de {service} está ocupado o no está disponible. "
+                "Si JobHunt ya está abierto, usa esa instancia. Para reiniciarlo, "
+                "pulsa Ctrl+C en la terminal anterior antes de ejecutar serve de nuevo."
+            ) from None
+
+
 def _serve() -> int:
     project_root = Path(__file__).resolve().parents[2]
     frontend_dir = project_root / "frontend"
@@ -65,6 +84,8 @@ def _serve() -> int:
 
     api_url = "http://127.0.0.1:8000"
     frontend_url = "http://127.0.0.1:5173"
+    _ensure_port_available(8000, "la API")
+    _ensure_port_available(5173, "el frontend")
     processes: list[subprocess.Popen[bytes]] = []
     try:
         api_process = subprocess.Popen(
@@ -181,7 +202,7 @@ def main(argv: list[str] | None = None) -> int:
             profile = load_ranking_profile(query.keywords)
             if profile is None:
                 log.warning("No se encontró config/ranking.yml: las ofertas nuevas quedan sin puntaje")
-            summaries = collect(db, build_sources(names), query, profile)
+            summaries = collect(db, build_sources(names, db=db), query, profile)
             return 1 if any(s.status != "success" for s in summaries) else 0
         elif args.cmd == "rank":
             query, _ = load_search_config()

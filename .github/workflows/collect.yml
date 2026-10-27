@@ -19,6 +19,12 @@ jobs:
     timeout-minutes: 20
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      MAIL_MAX_MESSAGES: ${{ vars.MAIL_MAX_MESSAGES || '50' }}
+      MAIL_MAX_SECONDS: ${{ vars.MAIL_MAX_SECONDS || '120' }}
+      MAIL_REPROCESS_REVIEW: ${{ vars.MAIL_REPROCESS_REVIEW || 'false' }}
+      MAIL_OAUTH_CLIENT_ID: ${{ secrets.MAIL_OAUTH_CLIENT_ID }}
+      MAIL_OAUTH_CLIENT_SECRET: ${{ secrets.MAIL_OAUTH_CLIENT_SECRET }}
+      GMAIL_TOKEN_KEY: ${{ secrets.GMAIL_TOKEN_KEY }}
     steps:
       - name: Verificar que existe el secret
         run: |

@@ -19,6 +19,7 @@ from .schemas import JobDetail, JobResponse, JobStatus, JobUpdateStatus, StatsRe
 from .cv.generator import generate_cv, OUTPUT_DIR
 from .cv.ai import AIError, generate_cover_letter
 from .cv.profile import load_profile
+from .gmail_routes import create_router as gmail_router
 
 load_dotenv()
 
@@ -52,17 +53,21 @@ def get_db() -> Iterator[Database]:
     finally:
         db.close()
 
+app.include_router(gmail_router(get_db))
+
+
 @app.get("/api/jobs", response_model=list[JobResponse])
 def list_jobs(
     status: Optional[JobStatus] = None,
     min_score: int = Query(0, ge=0, le=100),
     limit: int = Query(200, ge=1, le=1000),
     sort: str = Query("score", pattern="^(score|recent)$"),
+    source: Optional[str] = Query(None, max_length=100, pattern="^[A-Za-z0-9_:-]+$"),
     db: Database = Depends(get_db),
 ):
     """Ofertas para la tabla y el Kanban. Por defecto, las de mejor puntaje primero."""
     return repo.list_jobs(db, status=status.value if status else None, limit=limit,
-                          sort=sort, min_score=min_score)
+                          sort=sort, min_score=min_score, source=source)
 
 
 @app.get("/api/jobs/{job_id}", response_model=JobDetail)
@@ -338,3 +343,9 @@ def create_cover_letter(version_id: str, db: Database = Depends(get_db)):
         "id": saved["id"], "cover_letter": saved["cover_letter"],
         "cover_letter_model_name": saved["cover_letter_model_name"],
     }
+
+
+@app.get("/api/collection/email")
+def email_collection_summary(db: Database = Depends(get_db)):
+    from .mail_imports import collection_summary
+    return collection_summary(db)

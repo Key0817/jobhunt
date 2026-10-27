@@ -118,11 +118,63 @@ def resolve_job_id(db: Database, prefix: str) -> str:
     raise LookupError(f"El id {prefix!r} coincide con {len(rows)} ofertas")
 
 
+EMAIL_SOURCES = ("linkedin_email", "indeed_email", "computrabajo_email", "trabajosdiarios_email")
+
+
+def source_display(source: str) -> str:
+    labels = {"linkedin_email": "LinkedIn · correo", "indeed_email": "Indeed · correo",
+              "trabajosdiarios_email": "Trabajos Diarios · correo",
+              "computrabajo_email": "Computrabajo · correo", "getonboard": "Get on Board",
+              "greenhouse": "Greenhouse", "smartrecruiters": "SmartRecruiters"}
+    platform, _, company = source.partition(":")
+    label = labels.get(platform, platform)
+    return f"{label} · {company}" if company else label
+
+
+def source_condition(source: str) -> tuple[str, list]:
+    """Match the original source or any exact-URL alias retained in job_sources."""
+    if source == "email":
+        values = list(EMAIL_SOURCES)
+        markers = ",".join("?" for _ in values)
+        return (f"(jobs.source in ({markers}) or exists (select 1 from job_sources js where js.job_id = jobs.id and js.source in ({markers})))", values + values)
+    if source in ("greenhouse", "smartrecruiters"):
+        return ("(jobs.source like ? or exists (select 1 from job_sources js where js.job_id = jobs.id and js.source like ?))", [source + ":%", source + ":%"])
+    return ("(jobs.source = ? or exists (select 1 from job_sources js where js.job_id = jobs.id and js.source = ?))", [source, source])
+
+
+def job_metadata(job: dict) -> dict:
+    try:
+        raw = json.loads(job.get("raw") or "{}")
+    except (ValueError, TypeError):
+        raw = {}
+    job["source_display"] = source_display(job["source"])
+    job["description_incomplete"] = bool(raw.get("description_incomplete"))
+    job["location_needs_review"] = bool(raw.get("location_needs_review"))
+    return job
+
+
+def attach_job_origins(db: Database, jobs: list[dict]) -> list[dict]:
+    if not jobs:
+        return jobs
+    by_id = {job["id"]: job for job in jobs}
+    for job in jobs:
+        job_metadata(job)
+        job["origins"] = []
+        job.pop("raw", None)
+    markers = ",".join("?" for _ in by_id)
+    for row in db.query(f"select job_id, source, url from job_sources where job_id in ({markers}) order by source", tuple(by_id)):
+        by_id[row["job_id"]]["origins"].append({"source": row["source"], "label": source_display(row["source"]), "url": row["url"]})
+    for job in jobs:
+        if not job["origins"]:
+            job["origins"] = [{"source": job["source"], "label": job["source_display"], "url": job["url"]}]
+    return jobs
+
+
 def list_jobs(db: Database, status: str | None = None, limit: int = 50,
-              sort: str = "score", min_score: float = 0) -> list[dict]:
-    """sort='score' (mejores primero) o 'recent' (las últimas detectadas primero)."""
-    sql = ("select id, status, score, title, company, country, location, source, url, "
-           "posted_at, applied_at from jobs")
+              sort: str = "score", min_score: float = 0, source: str | None = None) -> list[dict]:
+    """Filter sources before limiting results, so lower scored email imports remain findable."""
+    sql = ("select id, status, score, title, company, country, location, source, url, remote, raw, "
+           "posted_at, applied_at, detected_at from jobs")
     conditions, params = [], []
     if status:
         conditions.append("status = ?")
@@ -130,12 +182,16 @@ def list_jobs(db: Database, status: str | None = None, limit: int = 50,
     if min_score:
         conditions.append("score >= ?")
         params.append(min_score)
+    if source:
+        condition, values = source_condition(source)
+        conditions.append(condition)
+        params.extend(values)
     if conditions:
         sql += " where " + " and ".join(conditions)
     sql += " order by score desc, detected_at desc" if sort == "score" else " order by detected_at desc"
     sql += " limit ?"
     params.append(limit)
-    return db.query(sql, tuple(params))
+    return attach_job_origins(db, db.query(sql, tuple(params)))
 
 
 def get_job(db: Database, job_id: str) -> dict:
@@ -152,7 +208,7 @@ def get_job_detail(db: Database, job_id: str) -> dict:
     detail = json.loads(job.get("score_detail") or "{}")
     job["remote_modality"] = raw.get("remote_modality")
     job["reasons"] = detail.get("reasons", [])
-    return job
+    return attach_job_origins(db, [job])[0]
 
 
 def get_stats(db: Database, weeks: int = 8) -> dict:

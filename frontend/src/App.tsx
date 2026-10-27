@@ -6,17 +6,19 @@ import {
   User,
   PanelLeftClose,
   PanelLeftOpen,
-  ExternalLink,
 } from 'lucide-react';
 import { STATUSES, STATUS_LABELS } from './types';
 import type { Job, JobStatus, Stats } from './types';
 import JobDetailPage from './JobDetailPage';
 import MyCVsPage from './MyCVsPage';
 import CVDetailPage from './CVDetailPage';
+import SettingsPage from './SettingsPage';
+import OffersPage from './OffersPage';
+import JobCard from './components/JobCard';
 
 const API_URL = 'http://localhost:8000';
 const CARDS_PER_COLUMN = 25;
-type ViewType = 'dashboard' | 'offers' | 'detail' | 'my-cvs' | 'cv-detail';
+type ViewType = 'dashboard' | 'offers' | 'detail' | 'my-cvs' | 'cv-detail' | 'settings';
 // Componente de la Barra Lateral modificado para recibir y cambiar la vista
 const Sidebar = ({ isOpen, toggleSidebar, currentView, setView }: { isOpen: boolean; toggleSidebar: () => void; currentView: ViewType; setView: (view: ViewType) => void; }) => (
   <aside className={`${isOpen ? 'w-64' : 'w-20'} border-r border-dark-700 h-screen p-4 flex flex-col gap-6 fixed transition-all duration-300 z-20 bg-dark-900`}>
@@ -56,62 +58,11 @@ const Sidebar = ({ isOpen, toggleSidebar, currentView, setView }: { isOpen: bool
 
 
       {isOpen && <div className="text-xs font-semibold mt-4 mb-1 px-2 text-gray-500">SISTEMA</div>}
-      <button className={`w-full flex items-center gap-3 px-3 py-2 hover:bg-dark-800 rounded-md transition ${!isOpen && 'justify-center'}`} title="Ajustes">
+      <button onClick={() => setView('settings')} className={`w-full flex items-center gap-3 px-3 py-2 rounded-md transition ${currentView === 'settings' ? 'bg-white text-black' : 'hover:bg-dark-800'} ${!isOpen && 'justify-center'}`} title="Ajustes">
         <Settings size={18} /> {isOpen && <span>Ajustes</span>}
       </button>
     </nav>
   </aside>
-);
-
-const ScoreBadge = ({ score }: { score: number }) => {
-  const color =
-    score >= 70
-      ? 'bg-emerald-500/15 text-emerald-300'
-      : score >= 40
-        ? 'bg-amber-500/15 text-amber-300'
-        : 'bg-gray-500/15 text-gray-400';
-  return <span className={`${color} text-xs font-semibold px-2 py-0.5 rounded-full`}>{Math.round(score)}</span>;
-};
-
-// Se añadió onViewDetail al JobCard
-const JobCard = ({ job, onMove, onViewDetail }: { job: Job; onMove: (id: string, status: JobStatus) => void; onViewDetail: (id: string) => void }) => (
-  <div className="bg-dark-800 border border-dark-700 p-4 rounded-lg flex flex-col justify-between h-full hover:border-gray-500 transition">
-    <div>
-      <div className="flex items-start justify-between gap-2 mb-2">
-        <h4
-          onClick={() => onViewDetail(job.id)}
-          className="font-semibold text-sm cursor-pointer hover:text-blue-400 hover:underline line-clamp-2"
-        >
-          {job.title}
-        </h4>
-        <ScoreBadge score={job.score} />
-      </div>
-      <p className="text-xs text-gray-400 mt-1">{job.company || 'Empresa no indicada'}</p>
-      {job.location && <p className="text-xs text-gray-500 mt-0.5">{job.location}</p>}
-    </div>
-    <div className="flex items-center justify-between gap-2 mt-4 pt-3 border-t border-dark-700">
-      <a
-        href={job.url}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="flex items-center gap-1 text-xs text-gray-400 hover:text-white transition"
-      >
-        <ExternalLink size={12} /> Abrir
-      </a>
-      <select
-        value={job.status}
-        onChange={(e) => onMove(job.id, e.target.value as JobStatus)}
-        className="status-select"
-        aria-label="Mover a otro estado"
-      >
-        {STATUSES.map((s) => (
-          <option key={s} value={s}>
-            {STATUS_LABELS[s]}
-          </option>
-        ))}
-      </select>
-    </div>
-  </div>
 );
 
 const StatCard = ({ label, value, hint }: { label: string; value: number | string; hint?: string }) => (
@@ -144,120 +95,6 @@ const WeeklyChart = ({ data }: { data: Stats['weekly_applications'] }) => {
   );
 };
 
-// Componente para la página de ofertas en Grid
-const OffersPage = ({ jobs, onMove, onViewDetail }: { jobs: Job[]; onMove: (id: string, status: JobStatus) => void; onViewDetail: (id: string) => void }) => {
-  const [filterStatus, setFilterStatus] = useState<string>('Todos');
-  const [filterMinScore, setFilterMinScore] = useState<number>(0);
-  const [filterModality, setFilterModality] = useState<string>('Todas');
-  const [filterDate, setFilterDate] = useState<string>('Todas');
-
-  // Lógica de filtrado en cliente
-  const filteredJobs = jobs.filter(job => {
-    // 1. Filtro por estado
-    if (filterStatus !== 'Todos' && job.status !== filterStatus) return false;
-
-    // 2. Filtro por puntaje
-    if (job.score < filterMinScore) return false;
-
-    // 3. Filtro por modalidad (Asumiendo que remoto es un booleano en tu BD, o se infiere por "remote")
-    if (filterModality === 'Remoto' && job.remote !== true) return false;
-    if (filterModality === 'Presencial' && job.remote === true) return false;
-
-    // 4. Filtro por fecha (Asumiendo que posted_at es un string ISO)
-    if (filterDate !== 'Todas' && job.posted_at) {
-      const jobDate = new Date(job.posted_at);
-      const now = new Date();
-      const diffDays = (now.getTime() - jobDate.getTime()) / (1000 * 3600 * 24);
-
-      if (filterDate === 'Hoy' && diffDays > 1) return false;
-      if (filterDate === 'Últimos 7 días' && diffDays > 7) return false;
-      if (filterDate === 'Último mes' && diffDays > 30) return false;
-    }
-
-    return true;
-  }).sort((a, b) => b.score - a.score);
-
-  return (
-    <div>
-      <h2 className="text-2xl font-bold mb-6">Todas las Ofertas</h2>
-
-      {/* Barra de Filtros */}
-      <div className="bg-dark-800 border border-dark-700 p-5 rounded-xl mb-6 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5 items-end">
-        <div className="flex flex-col gap-2">
-          <label className="offers-filter-label">Estado</label>
-          <select
-            value={filterStatus}
-            onChange={e => setFilterStatus(e.target.value)}
-            className="offers-filter-select"
-            aria-label="Filtrar por estado"
-          >
-            <option value="Todos">Todos</option>
-            {STATUSES.map(s => <option key={s} value={s}>{STATUS_LABELS ? STATUS_LABELS[s] : s}</option>)}
-          </select>
-        </div>
-
-        <div className="flex flex-col gap-2">
-          <label className="offers-filter-label" htmlFor="minimum-score">Puntaje mínimo</label>
-          <div className="offers-filter-range">
-            <input
-              id="minimum-score"
-              type="range"
-              min="0" max="100" step="5"
-              value={filterMinScore}
-              onChange={e => setFilterMinScore(Number(e.target.value))}
-              className="offers-filter-slider"
-            />
-            <span className="offers-filter-value">{filterMinScore}</span>
-          </div>
-        </div>
-
-        <div className="flex flex-col gap-2">
-          <label className="offers-filter-label">Modalidad</label>
-          <select
-            value={filterModality}
-            onChange={e => setFilterModality(e.target.value)}
-            className="offers-filter-select"
-            aria-label="Filtrar por modalidad"
-          >
-            <option value="Todas">Cualquier modalidad</option>
-            <option value="Remoto">Remoto</option>
-            <option value="Presencial">Presencial / Híbrido</option>
-          </select>
-        </div>
-
-        <div className="flex flex-col gap-2">
-          <label className="offers-filter-label">Publicación</label>
-          <select
-            value={filterDate}
-            onChange={e => setFilterDate(e.target.value)}
-            className="offers-filter-select"
-            aria-label="Filtrar por fecha de publicación"
-          >
-            <option value="Todas">Cualquier fecha</option>
-            <option value="Hoy">Hoy</option>
-            <option value="Últimos 7 días">Últimos 7 días</option>
-            <option value="Último mes">Último mes</option>
-          </select>
-        </div>
-      </div>
-
-      {/* Grid de Tarjetas */}
-      <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-5 gap-4">
-        {filteredJobs.length > 0 ? (
-          filteredJobs.map(job => (
-            <JobCard key={job.id} job={job} onMove={onMove} onViewDetail={onViewDetail} />
-          ))
-        ) : (
-          <div className="col-span-full py-16 flex flex-col items-center justify-center border-2 border-dashed border-dark-700 rounded-xl text-gray-500">
-            <p className="text-lg mb-1">No se encontraron ofertas</p>
-            <p className="text-sm">Prueba ajustando los filtros de búsqueda.</p>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-};
-
 // Componente Principal
 function App() {
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -268,6 +105,7 @@ function App() {
 
   // Estados para controlar la navegación
   const [currentView, setCurrentView] = useState<ViewType>('dashboard');
+  const [offersSource, setOffersSource] = useState('all');
   const [selectedCVId, setSelectedCVId] = useState<string | null>(null);
   const [cvBackView, setCVBackView] = useState<'detail' | 'my-cvs'>('my-cvs');
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
@@ -322,6 +160,7 @@ function App() {
 
   // Renderizado dinámico de la vista central
   const renderView = () => {
+    if (currentView === 'settings') return <SettingsPage />;
     if (currentView === 'detail' && selectedJobId) {
       return (
         <JobDetailPage
@@ -360,7 +199,7 @@ function App() {
     }
 
     if (currentView === 'offers') {
-      return <OffersPage jobs={jobs} onMove={moveJob} onViewDetail={handleViewDetail} />;
+      return <OffersPage source={offersSource} onSourceChange={setOffersSource} onMove={moveJob} onViewDetail={handleViewDetail} />;
     }
 
     return (

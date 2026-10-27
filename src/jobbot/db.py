@@ -114,6 +114,14 @@ class Database:
                     self.execute(statement)
             if not self.is_sqlite:
                 self.execute("alter table email_imports enable row level security")
+        with self.transaction():
+            script = (HERE / "gmail_oauth_schema.sql").read_text(encoding="utf-8")
+            for statement in script.split(";"):
+                if statement.strip():
+                    self.execute(statement)
+            if not self.is_sqlite:
+                self.execute("alter table gmail_connections enable row level security")
+                self.execute("alter table gmail_oauth_states enable row level security")
         self.conn.commit()
 
     def init_schema(self) -> None:

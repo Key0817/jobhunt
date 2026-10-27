@@ -3,6 +3,7 @@ sources:
   - getonboard
   - greenhouse
   - smartrecruiters
+  - email_alerts  # Se activa al conectar Gmail desde Ajustes.
 
 residence_country: CR 
 max_age_days: 30

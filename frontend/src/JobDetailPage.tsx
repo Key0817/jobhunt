@@ -241,7 +241,7 @@ export default function JobDetailPage({jobId,onBack,onMove,onViewCV,}: JobDetail
               rel="noreferrer"
               className="flex items-center gap-2 bg-dark-700 text-white px-4 py-2 rounded font-medium hover:bg-dark-600 transition"
             >
-              Ver original <ExternalLink size={16} />
+              Abrir oferta y postular <ExternalLink size={16} />
             </a>
           )}
         </div>
@@ -263,6 +263,15 @@ export default function JobDetailPage({jobId,onBack,onMove,onViewCV,}: JobDetail
             {cvError}
           </div>
         )}
+
+        <section className="mb-6 rounded-lg border border-dark-700 p-4">
+          <h2 className="text-sm font-semibold">Origen de la oferta</h2>
+          <p className="mt-2 text-sm text-blue-300">{job.source_display || job.source}</p>
+          {job.detected_at && <p className="mt-1 text-xs text-gray-400">Añadida al sistema: {new Date(job.detected_at).toLocaleString('es-CR')}</p>}
+          {job.description_incomplete && <p className="mt-3 text-sm leading-6 text-amber-300">Esta oferta se importó desde una alerta de correo. El texto es un resumen; abre la oferta original para revisar todos los requisitos y postular.</p>}
+          {job.location_needs_review && <p className="mt-2 text-sm text-amber-300">La alerta no confirma la ubicación. Verifica que puedas postular desde Costa Rica.</p>}
+          <div className="mt-3 flex flex-wrap gap-3">{job.origins?.filter(origin => /^https?:\/\//i.test(origin.url)).map(origin => <a key={origin.source} href={origin.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-gray-300 underline">{origin.label}<ExternalLink size={12} /></a>)}</div>
+        </section>
 
         <section className="mb-8">
           <div className="flex justify-between items-center gap-3 mb-4 border-b border-dark-700 pb-2">
@@ -330,7 +339,7 @@ export default function JobDetailPage({jobId,onBack,onMove,onViewCV,}: JobDetail
 
         <section>
           <h3 className="text-lg font-semibold mb-4 border-b border-dark-700 pb-2">
-            Descripción del puesto
+            {job.description_incomplete ? "Resumen recibido por correo" : "Descripción del puesto"}
           </h3>
           <div className="text-gray-300 text-sm leading-relaxed whitespace-pre-wrap">
             {job.description ||

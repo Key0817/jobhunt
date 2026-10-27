@@ -34,7 +34,12 @@ export interface Job {
   source: string;
   country: string | null;
   location: string | null;
-  remote: boolean;
+  remote: boolean | null;
+  detected_at: string | null;
+  source_display: string;
+  description_incomplete: boolean;
+  location_needs_review: boolean;
+  origins: { source: string; label: string; url: string }[];
   posted_at: string | null;
   applied_at: string | null;
 }

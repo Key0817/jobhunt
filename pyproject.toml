@@ -7,6 +7,8 @@ dependencies = [
     "psycopg[binary]>=3.2",
     "PyYAML>=6.0",
     "docxtpl>=0.20",
+    "cryptography>=44",
+    "google-auth-oauthlib>=1.2",
 ]
 
 [build-system]
