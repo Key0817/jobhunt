@@ -12,6 +12,7 @@ from jobbot.cli import main
 from jobbot.db import Database
 from jobbot.models import JobPosting, SearchQuery
 from jobbot.pipeline import collect
+from jobbot.pipeline import RunSummary
 from jobbot.ranking import RankingProfile, Score
 from jobbot.sources.example import ExampleSource
 
@@ -140,6 +141,19 @@ class PipelineScoringTests(unittest.TestCase):
 
 
 class CliTests(unittest.TestCase):
+    def test_partial_coverage_is_warning_but_strict_mode_fails(self):
+        self.run_cli("init-db")
+        with mock.patch("jobbot.cli.collect", return_value=[RunSummary("board", 1, 1, status="partial")]):
+            self.assertEqual(self.run_cli("collect")[0], 0)
+            self.assertEqual(self.run_cli("collect", "--strict")[0], 1)
+
+    def test_real_error_is_failure_even_after_some_posts_were_saved(self):
+        self.run_cli("init-db")
+        for status in ("failed", "partial"):
+            with self.subTest(status=status), mock.patch("jobbot.cli.collect", return_value=[
+                RunSummary("board", 3, 1, error="Database error", status=status)]):
+                self.assertEqual(self.run_cli("collect")[0], 1)
+
     def setUp(self):
         self.folder = tempfile.TemporaryDirectory()
         self.addCleanup(self.folder.cleanup)

@@ -161,6 +161,7 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("serve", help="Inicia el API y el frontend, y abre el navegador")
     c = sub.add_parser("collect", help="Busca ofertas en las fuentes configuradas")
     c.add_argument("--sources", help="Lista separada por comas; por defecto, config/search.yml")
+    c.add_argument("--strict", action="store_true", help="Devuelve error también ante cobertura parcial")
     sub.add_parser("rank", help="Recalcula el puntaje de todas las ofertas con config/ranking.yml")
     ls = sub.add_parser("list", help="Lista las ofertas guardadas")
     ls.add_argument("--status", choices=STATUSES)
@@ -203,7 +204,11 @@ def main(argv: list[str] | None = None) -> int:
             if profile is None:
                 log.warning("No se encontró config/ranking.yml: las ofertas nuevas quedan sin puntaje")
             summaries = collect(db, build_sources(names, db=db), query, profile)
-            return 1 if any(s.status != "success" for s in summaries) else 0
+            failed = sum(s.status == "failed" or bool(s.error) for s in summaries)
+            partial = sum(s.status == "partial" for s in summaries)
+            log.info("Resumen: %d fuentes, %d parciales, %d con errores; %d ofertas nuevas",
+                     len(summaries), partial, failed, sum(s.inserted for s in summaries))
+            return 1 if failed or (args.strict and partial) else 0
         elif args.cmd == "rank":
             query, _ = load_search_config()
             profile = load_ranking_profile(query.keywords)

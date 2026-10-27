@@ -22,7 +22,8 @@ jobs:
       max-parallel: 3
       matrix:
         sources:
-          - getonboard,dynamitejobs,procomer,email_alerts
+          - getonboard,dynamitejobs,procomer
+          - email_alerts
           - greenhouse
           - smartrecruiters
           - lever,ashby
@@ -41,6 +42,8 @@ jobs:
       MAIL_MAX_MESSAGES: ${{ vars.MAIL_MAX_MESSAGES || '50' }}
       MAIL_MAX_SECONDS: ${{ vars.MAIL_MAX_SECONDS || '120' }}
       MAIL_REPROCESS_REVIEW: ${{ vars.MAIL_REPROCESS_REVIEW || 'false' }}
+      MAIL_APPLY_SEARCH_FILTERS: ${{ vars.MAIL_APPLY_SEARCH_FILTERS || 'false' }}
+      MAIL_UNREAD_ONLY: 'true'
       MAIL_OAUTH_CLIENT_ID: ${{ secrets.MAIL_OAUTH_CLIENT_ID }}
       MAIL_OAUTH_CLIENT_SECRET: ${{ secrets.MAIL_OAUTH_CLIENT_SECRET }}
       GMAIL_TOKEN_KEY: ${{ secrets.GMAIL_TOKEN_KEY }}
@@ -49,6 +52,21 @@ jobs:
         run: |
           if [ -z "$DATABASE_URL" ]; then
             echo "::error::Falta el secret DATABASE_URL"
+            exit 1
+          fi
+      - name: Verificar OAuth de Gmail
+        if: matrix.sources == 'email_alerts'
+        run: |
+          missing=0
+          for name in MAIL_OAUTH_CLIENT_ID MAIL_OAUTH_CLIENT_SECRET GMAIL_TOKEN_KEY; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Falta el secret $name. Configúralo en Settings > Secrets and variables > Actions."
+              missing=1
+            fi
+          done
+          if [ "$missing" = 1 ]; then
+            echo "### Gmail no se ejecutó: faltan secrets OAuth" >> "$GITHUB_STEP_SUMMARY"
+            echo "Usa los mismos valores del entorno local, incluida GMAIL_TOKEN_KEY. Las otras fuentes se ejecutan por separado." >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
       - uses: actions/checkout@v6

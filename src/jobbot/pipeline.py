@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
 from datetime import timedelta, timezone
 
@@ -11,6 +12,18 @@ from .ranking import RankingProfile
 from .sources.base import Source
 
 log = logging.getLogger("jobbot")
+
+
+def _store_with_retry(db, posting, score):
+    for attempt in range(3):
+        try:
+            return repo.insert_job_if_new(db, posting, score)
+        except Exception as exc:
+            # insert_job_if_new revierte la transacción antes de propagar el error.
+            if getattr(exc, "sqlstate", None) not in {"40P01", "40001", "55P03"} or attempt == 2:
+                raise
+            log.warning("Conflicto temporal guardando %s; reintento %d/2", posting.source, attempt + 1)
+            time.sleep(.5 * (attempt + 1))
 
 
 @dataclass
@@ -47,13 +60,16 @@ def collect(db: Database, sources: list[Source], query: SearchQuery,
             status = getattr(result, "status", "success")
             details = getattr(result, "details", {})
             postings = [p for p in result if _is_recent(p, query.max_age_days)]
+            # Las consultas de checkpoints no deben retener bloqueos mientras se guarda.
+            db.conn.commit()
             found = len(postings)
             for posting in postings:
                 score = profile.rank(posting) if profile else None
-                if repo.insert_job_if_new(db, posting, score):
+                if _store_with_retry(db, posting, score):
                     inserted += 1
             source.after_store(db)
         except Exception as exc:  
+            db.conn.rollback()
             log.exception("La fuente %s falló", source.name)
             error = f"{type(exc).__name__}: {exc}"
             status = "partial" if inserted else "failed"
@@ -61,4 +77,6 @@ def collect(db: Database, sources: list[Source], query: SearchQuery,
         summaries.append(RunSummary(source.name, found, inserted, error, status, details))
         log.info("%s [%s]: %d encontradas, %d nuevas%s", source.name, status, found, inserted,
                  f" (ERROR: {error})" if error else "")
+        if status == "partial":
+            log.warning("%s: cobertura incompleta; detalles: %s", source.name, details)
     return summaries

@@ -10,6 +10,7 @@ HERE = Path(__file__).parent
 # Columnas agregadas después de la primera versión del esquema: (tabla, columna, definición).
 # create table if not exists no modifica tablas que ya existen, así que se agregan aquí.
 MIGRATIONS = [
+    ("email_imports", "parser_version", "integer not null default 0"),
     ("jobs", "score_detail", "text not null default '{}'"),
     ("jobs", "last_seen_at", "timestamptz"),
     ("runs", "status", "text not null default 'unknown'"),
@@ -82,47 +83,74 @@ class Database:
         return {row["column_name"] for row in rows}
 
     def migrate(self) -> None:
-        """Agrega las columnas que falten. Es seguro llamarlo todas las veces."""
+        """Una migración por revisión, serializada y con transacción corta en Postgres."""
+        if self.is_sqlite:
+            with self.transaction():
+                self._migrate_schema()
+            return
+        import hashlib
+        from time import sleep
+
+        scripts = ("collection_schema.sql", "mail_schema.sql", "gmail_oauth_schema.sql")
+        revision = hashlib.sha256((repr(MIGRATIONS) + "".join(
+            (HERE / name).read_text(encoding="utf-8") for name in scripts)).encode()).hexdigest()
+        for attempt in range(3):
+            try:
+                with self.transaction():
+                    self.execute("set local lock_timeout = '5s'")
+                    self.execute("select pg_advisory_xact_lock(741906271)")
+                    self.execute("create table if not exists jobbot_schema_revisions (revision text primary key)")
+                    if not self.query("select revision from jobbot_schema_revisions where revision = ?", (revision,)):
+                        self.execute("alter table jobbot_schema_revisions enable row level security")
+                        self._migrate_schema()
+                        self.execute("insert into jobbot_schema_revisions (revision) values (?)", (revision,))
+                return
+            except Exception as exc:
+                if getattr(exc, "sqlstate", None) not in {"40P01", "40001", "55P03"} or attempt == 2:
+                    raise
+                sleep(.5 * (attempt + 1))
+
+    def _migrate_schema(self) -> None:
         for table, column, definition in MIGRATIONS:
             existing = self.columns(table)
             if existing and column not in existing:
-                with self.transaction():
-                    self.execute(f"alter table {table} add column {column} {definition}")
+                self.execute(f"alter table {table} add column {column} {definition}")
         job_columns = self.columns("jobs")
         if "id" in job_columns:
-            with self.transaction():
-                script = (HERE / "collection_schema.sql").read_text(encoding="utf-8")
-                # Execute each DDL statement in the same transaction on both engines.
-                for statement in script.split(";"):
-                    if statement.strip():
-                        self.execute(statement)
-                if not self.is_sqlite:
-                    self.execute("alter table job_sources enable row level security")
-                if {"source", "external_id", "url", "detected_at"} <= job_columns:
-                    self.execute("update jobs set last_seen_at = detected_at where last_seen_at is null")
-                    self.execute(
-                        "insert into job_sources (source, source_key, job_id, external_id, url, canonical_url, first_seen_at, last_seen_at) "
-                        "select source, case when external_id is not null and external_id <> '' "
-                        "then 'id:' || external_id else 'url:' || url end, id, external_id, url, url, detected_at, "
-                        "coalesce(last_seen_at, detected_at) from jobs where true "
-                        "on conflict (source, source_key) do nothing"
-                    )
-        with self.transaction():
-            script = (HERE / "mail_schema.sql").read_text(encoding="utf-8")
+            script = (HERE / "collection_schema.sql").read_text(encoding="utf-8")
+            # Execute each DDL statement in the same transaction on both engines.
             for statement in script.split(";"):
                 if statement.strip():
                     self.execute(statement)
             if not self.is_sqlite:
-                self.execute("alter table email_imports enable row level security")
-        with self.transaction():
-            script = (HERE / "gmail_oauth_schema.sql").read_text(encoding="utf-8")
-            for statement in script.split(";"):
-                if statement.strip():
-                    self.execute(statement)
-            if not self.is_sqlite:
-                self.execute("alter table gmail_connections enable row level security")
-                self.execute("alter table gmail_oauth_states enable row level security")
-        self.conn.commit()
+                self._enable_rls("job_sources")
+            if {"source", "external_id", "url", "detected_at"} <= job_columns:
+                self.execute("update jobs set last_seen_at = detected_at where last_seen_at is null")
+                self.execute(
+                    "insert into job_sources (source, source_key, job_id, external_id, url, canonical_url, first_seen_at, last_seen_at) "
+                    "select source, case when external_id is not null and external_id <> '' "
+                    "then 'id:' || external_id else 'url:' || url end, id, external_id, url, url, detected_at, "
+                    "coalesce(last_seen_at, detected_at) from jobs where true "
+                    "on conflict (source, source_key) do nothing"
+                )
+        script = (HERE / "mail_schema.sql").read_text(encoding="utf-8")
+        for statement in script.split(";"):
+            if statement.strip():
+                self.execute(statement)
+        if not self.is_sqlite:
+            self._enable_rls("email_imports")
+        script = (HERE / "gmail_oauth_schema.sql").read_text(encoding="utf-8")
+        for statement in script.split(";"):
+            if statement.strip():
+                self.execute(statement)
+        if not self.is_sqlite:
+            self._enable_rls("gmail_connections")
+            self._enable_rls("gmail_oauth_states")
+
+    def _enable_rls(self, table: str) -> None:
+        rows = self.query("select relrowsecurity from pg_class where oid = to_regclass(?)", (table,))
+        if rows and not rows[0]["relrowsecurity"]:
+            self.execute(f"alter table {table} enable row level security")
 
     def init_schema(self) -> None:
         scripts = [(HERE / "schema.sql").read_text(encoding="utf-8")]
