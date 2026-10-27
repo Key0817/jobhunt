@@ -8,16 +8,6 @@ companies:
   verification_status: verified
   checked_at: '2026-10-27T19:23:54.135877+00:00'
   retry_pending: false
-- id: nerdy
-  name: Nerdy
-  platform: greenhouse
-  board_id: nerdy
-  careers_url: https://job-boards.greenhouse.io/nerdy
-  enabled: false
-  notes: La comprobación real devolvió HTTP 404; revisar board_id o cambio de plataforma.
-  verification_status: not_found
-  checked_at: '2026-10-27T19:23:54.135877+00:00'
-  retry_pending: false
 - id: nozominetworks
   name: Nozomi Networks
   platform: greenhouse
@@ -263,17 +253,6 @@ companies:
   verification_status: verified
   checked_at: '2026-10-27T19:23:54.135877+00:00'
   retry_pending: false
-- id: varsity-tutors
-  name: Varsity Tutors
-  platform: greenhouse
-  board_id: varsitytutors
-  careers_url: https://job-boards.greenhouse.io/varsitytutors/
-  include_global_remote: true
-  api_region: us
-  enabled: false
-  verification_status: not_found
-  checked_at: '2026-10-27T19:23:54.135877+00:00'
-  retry_pending: false
 - id: versprite
   name: VerSprite
   platform: greenhouse
@@ -371,28 +350,6 @@ companies:
   api_region: us
   enabled: true
   verification_status: verified
-  checked_at: '2026-10-27T19:23:54.135877+00:00'
-  retry_pending: false
-- id: hakkoda
-  name: Hakkoda
-  platform: lever
-  board_id: Hakkoda
-  careers_url: https://jobs.lever.co/Hakkoda/
-  include_global_remote: true
-  api_region: us
-  enabled: false
-  verification_status: not_found
-  checked_at: '2026-10-27T19:23:54.135877+00:00'
-  retry_pending: false
-- id: laagencia
-  name: LAAgencia
-  platform: lever
-  board_id: laagencia
-  careers_url: https://jobs.lever.co/laagencia/
-  include_global_remote: true
-  api_region: us
-  enabled: false
-  verification_status: not_found
   checked_at: '2026-10-27T19:23:54.135877+00:00'
   retry_pending: false
 - id: navisite
@@ -514,17 +471,6 @@ companies:
   api_region: us
   enabled: true
   verification_status: verified
-  checked_at: '2026-10-27T19:23:54.135877+00:00'
-  retry_pending: false
-- id: project-growth
-  name: Project Growth
-  platform: ashby
-  board_id: ProjectGrowth
-  careers_url: https://jobs.ashbyhq.com/ProjectGrowth/
-  include_global_remote: true
-  api_region: us
-  enabled: false
-  verification_status: not_found
   checked_at: '2026-10-27T19:23:54.135877+00:00'
   retry_pending: false
 - id: snowflake
@@ -1435,19 +1381,6 @@ companies:
   managed_source: null
   checked_at: '2026-10-27T19:23:54.135877+00:00'
   retry_pending: true
-- id: catalyst
-  name: Catalyst
-  platform: public_web
-  board_id: a361555383c1f3e54a15
-  careers_url: https://careerscr-concentrixcatalyst.icims.com/jobs/search
-  include_global_remote: true
-  api_region: us
-  enabled: false
-  verification_status: not_found
-  legacy_integration_status: requires_adapter_review
-  managed_source: null
-  checked_at: '2026-10-27T19:23:54.135877+00:00'
-  retry_pending: false
 - id: cfia
   name: CFIA
   platform: public_web
@@ -1668,19 +1601,6 @@ companies:
   legacy_integration_status: requires_adapter_review
   managed_source: null
   aliases: []
-  checked_at: '2026-10-27T19:23:54.135877+00:00'
-  retry_pending: false
-- id: crg
-  name: CRG
-  platform: public_web
-  board_id: b737bb86eda7df1fa76a
-  careers_url: https://grupocrgsoluciones.na.teamtailor.com/jobs
-  include_global_remote: true
-  api_region: us
-  enabled: false
-  verification_status: not_found
-  legacy_integration_status: requires_adapter_review
-  managed_source: null
   checked_at: '2026-10-27T19:23:54.135877+00:00'
   retry_pending: false
 - id: crossborder
@@ -2069,19 +1989,6 @@ companies:
   api_region: us
   enabled: true
   verification_status: verified_public_access
-  legacy_integration_status: requires_adapter_review
-  managed_source: null
-  checked_at: '2026-10-27T19:23:54.135877+00:00'
-  retry_pending: false
-- id: golabs
-  name: Golabs
-  platform: public_web
-  board_id: f7d891e52ee7391c9c1d
-  careers_url: https://careers-page.com/golabstech
-  include_global_remote: true
-  api_region: us
-  enabled: false
-  verification_status: not_found
   legacy_integration_status: requires_adapter_review
   managed_source: null
   checked_at: '2026-10-27T19:23:54.135877+00:00'
@@ -2713,19 +2620,6 @@ companies:
   managed_source: null
   checked_at: '2026-10-27T19:23:54.135877+00:00'
   retry_pending: false
-- id: ooligo
-  name: Ooligo
-  platform: public_web
-  board_id: 43a8b922c8b954d775de
-  careers_url: https://ooligo.com/remote-jobs
-  include_global_remote: true
-  api_region: us
-  enabled: false
-  verification_status: not_found
-  legacy_integration_status: requires_adapter_review
-  managed_source: null
-  checked_at: '2026-10-27T19:23:54.135877+00:00'
-  retry_pending: false
 - id: opentext
   name: OpenText
   platform: public_web
@@ -3008,19 +2902,6 @@ companies:
   api_region: us
   enabled: true
   verification_status: verified_public_access
-  legacy_integration_status: requires_adapter_review
-  managed_source: null
-  checked_at: '2026-10-27T19:23:54.135877+00:00'
-  retry_pending: false
-- id: smiledirectclub
-  name: SmileDirectClub
-  platform: public_web
-  board_id: 7afdaef1b4bb1a9dccc3
-  careers_url: https://careers-smiledirectclub.icims.com/jobs/search
-  include_global_remote: true
-  api_region: us
-  enabled: false
-  verification_status: not_found
   legacy_integration_status: requires_adapter_review
   managed_source: null
   checked_at: '2026-10-27T19:23:54.135877+00:00'
@@ -3584,19 +3465,6 @@ companies:
   managed_source: null
   checked_at: '2026-10-27T19:23:54.135877+00:00'
   retry_pending: false
-- id: auberge-resorts-collection
-  name: Auberge Resorts Collection
-  platform: public_web
-  board_id: 9db60f4204a0eb335b91
-  careers_url: https://aubergecareers.com/jobs
-  include_global_remote: true
-  api_region: us
-  enabled: false
-  verification_status: not_found
-  legacy_integration_status: requires_adapter_review
-  managed_source: null
-  checked_at: '2026-10-27T19:23:54.135877+00:00'
-  retry_pending: false
 - id: bairesdev
   name: BairesDev
   platform: public_web
@@ -3684,19 +3552,6 @@ companies:
   api_region: us
   enabled: true
   verification_status: verified_public_access
-  legacy_integration_status: requires_adapter_review
-  managed_source: null
-  checked_at: '2026-10-27T19:23:54.135877+00:00'
-  retry_pending: false
-- id: bridgestone-costa-rica
-  name: Bridgestone Costa Rica
-  platform: public_web
-  board_id: da7dcdcbbd9780a50e0a
-  careers_url: https://costarica-bridgestone.icims.com/jobs/search
-  include_global_remote: true
-  api_region: us
-  enabled: false
-  verification_status: not_found
   legacy_integration_status: requires_adapter_review
   managed_source: null
   checked_at: '2026-10-27T19:23:54.135877+00:00'
@@ -3840,19 +3695,6 @@ companies:
   api_region: us
   enabled: true
   verification_status: verified_public_access
-  legacy_integration_status: requires_adapter_review
-  managed_source: null
-  checked_at: '2026-10-27T19:23:54.135877+00:00'
-  retry_pending: false
-- id: darwoft
-  name: Darwoft
-  platform: public_web
-  board_id: 6dc250edda4d94d5987a
-  careers_url: https://careers-page.com/darwoft
-  include_global_remote: true
-  api_region: us
-  enabled: false
-  verification_status: not_found
   legacy_integration_status: requires_adapter_review
   managed_source: null
   checked_at: '2026-10-27T19:23:54.135877+00:00'
@@ -4286,19 +4128,6 @@ companies:
   managed_source: null
   checked_at: '2026-10-27T19:23:54.135877+00:00'
   retry_pending: false
-- id: gep-worldwide
-  name: GEP Worldwide
-  platform: public_web
-  board_id: 81c715a49a5b97ca8a22
-  careers_url: https://jobsamericas-gep.icims.com/jobs/intro
-  include_global_remote: true
-  api_region: us
-  enabled: false
-  verification_status: not_found
-  legacy_integration_status: requires_adapter_review
-  managed_source: null
-  checked_at: '2026-10-27T19:23:54.135877+00:00'
-  retry_pending: false
 - id: get-on-board
   name: Get on Board
   platform: public_web
@@ -4598,19 +4427,6 @@ companies:
   managed_source: null
   checked_at: '2026-10-27T19:23:54.135877+00:00'
   retry_pending: false
-- id: jobsity
-  name: Jobsity
-  platform: public_web
-  board_id: 9a2c48841ce50150ad9a
-  careers_url: https://careers.jobsity.com/explore-opportunities
-  include_global_remote: true
-  api_region: us
-  enabled: false
-  verification_status: not_found
-  legacy_integration_status: requires_adapter_review
-  managed_source: null
-  checked_at: '2026-10-27T19:23:54.135877+00:00'
-  retry_pending: false
 - id: jobspresso
   name: Jobspresso
   platform: public_web
@@ -4646,19 +4462,6 @@ companies:
   api_region: us
   enabled: true
   verification_status: verified_public_access
-  legacy_integration_status: requires_adapter_review
-  managed_source: null
-  checked_at: '2026-10-27T19:23:54.135877+00:00'
-  retry_pending: false
-- id: lapieza
-  name: LaPieza
-  platform: public_web
-  board_id: 4f614219ac89ac667a91
-  careers_url: https://lapieza.io/en/allvacancies
-  include_global_remote: true
-  api_region: us
-  enabled: false
-  verification_status: not_found
   legacy_integration_status: requires_adapter_review
   managed_source: null
   checked_at: '2026-10-27T19:23:54.135877+00:00'
@@ -4702,19 +4505,6 @@ companies:
   managed_source: null
   checked_at: '2026-10-27T19:23:54.135877+00:00'
   retry_pending: true
-- id: lumen
-  name: Lumen
-  platform: public_web
-  board_id: af3d73e35ca2b1b39a9c
-  careers_url: https://jobs.lumen.com/global/en/search-results
-  include_global_remote: true
-  api_region: us
-  enabled: false
-  verification_status: not_found
-  legacy_integration_status: requires_adapter_review
-  managed_source: null
-  checked_at: '2026-10-27T19:23:54.135877+00:00'
-  retry_pending: false
 - id: maximo-nivel
   name: Maximo Nivel
   platform: public_web
@@ -5075,19 +4865,6 @@ companies:
   api_region: us
   enabled: true
   verification_status: verified_public_access
-  legacy_integration_status: requires_adapter_review
-  managed_source: null
-  checked_at: '2026-10-27T19:23:54.135877+00:00'
-  retry_pending: false
-- id: sgf-global
-  name: SGF Global
-  platform: public_web
-  board_id: 3da3f65c7e40a50937e7
-  careers_url: https://sgfglobal.com/job-search
-  include_global_remote: true
-  api_region: us
-  enabled: false
-  verification_status: not_found
   legacy_integration_status: requires_adapter_review
   managed_source: null
   checked_at: '2026-10-27T19:23:54.135877+00:00'
