@@ -15,7 +15,7 @@ export default function OffersPage({ source, onSourceChange, onMove, onViewDetai
   onMove: (id: string, status: JobStatus) => Promise<boolean>; onViewDetail: (id: string) => void;
 }) {
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
+  const pageSize = 50;
   const [sort, setSort] = useState('recent');
   const [status, setStatus] = useState('all');
   const [score, setScore] = useState(0);
@@ -45,7 +45,6 @@ export default function OffersPage({ source, onSourceChange, onMove, onViewDetai
       </div>
       {error && <p role="alert" className="mb-4 text-red-300">{error}</p>}
       <p role="status" className="mb-4 text-sm text-gray-400">{loading ? 'Cargando ofertas...' : `${data.total} ofertas encontradas`}</p>
-      <label className="mb-4 flex items-center gap-3 text-sm text-gray-400">Ofertas por página<select aria-label="Ofertas por página" value={pageSize} onChange={e => changeFilter(() => setPageSize(Number(e.target.value)))} className="offers-filter-select">{[25, 50, 100].map(size => <option key={size} value={size}>{size}</option>)}</select></label>
       <Pagination page={data.page} totalPages={data.total_pages} total={data.total} pageSize={data.page_size} loading={loading} onPageChange={changePage} />
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3 xl:grid-cols-5">{!loading && !error && data.items.map(job => <JobCard key={job.id} job={job} onMove={(id, target) => void move(id, target)} onViewDetail={onViewDetail} />)}</div>
       {!loading && !error && data.total === 0 && <p className="rounded-xl border border-dashed border-dark-700 p-10 text-center text-gray-400">No hay ofertas con estos filtros. Reduce la puntuación mínima o selecciona otra fuente.</p>}
