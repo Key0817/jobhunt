@@ -74,4 +74,9 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -e .
+      - name: Instalar lector de páginas con JavaScript
+        if: startsWith(matrix.sources, 'public_web_')
+        run: |
+          pip install -e '.[browser]'
+          python -m playwright install --with-deps chromium
       - run: python -m jobbot collect --sources "${{ matrix.sources }}"

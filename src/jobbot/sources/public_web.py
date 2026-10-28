@@ -2,7 +2,7 @@
 import re
 import time
 from urllib.error import HTTPError
-from urllib.parse import urlsplit, urljoin
+from urllib.parse import urlsplit, urljoin, urlencode
 from urllib.request import Request, build_opener, HTTPRedirectHandler
 
 from .base import Source
@@ -61,18 +61,20 @@ class PublicWebSource(Source):
     def _start(self):
         self._deadline = self._clock() + self.max_runtime
 
-    def _request(self, url):
+    def _request(self, url, form=None):
         if urlsplit(url).hostname != self.host or urlsplit(url).scheme != "https":
             raise ValueError("URL fuera de la bolsa autorizada")
         remaining = self._deadline - self._clock()
         if remaining <= 0:
             raise TimeoutError("Presupuesto de tiempo de la bolsa agotado")
         if self._fetch_text:
-            return self._fetch_text(url)
+            return self._fetch_text(url) if form is None else self._fetch_text(url, form)
         if self._last_request is not None:
             self._sleep(max(0, 0.6 - (self._clock() - self._last_request)))
         self._last_request = self._clock()
-        request = Request(url, headers={"User-Agent": "jobbot-personal/0.3", "Accept": "text/html,application/json,application/xml"})
+        request = Request(url, data=urlencode(form, doseq=True).encode() if form is not None else None,
+            headers={"User-Agent": "jobbot-personal/0.3", "Accept": "text/html,application/json,application/xml",
+                     **({"Content-Type": "application/x-www-form-urlencoded"} if form is not None else {})})
         with build_opener(SameHostRedirect()).open(request, timeout=min(15, remaining)) as response:
             raw = response.read(8_000_001)
             charset = response.headers.get_content_charset() or "utf-8"
@@ -80,7 +82,7 @@ class PublicWebSource(Source):
             raise ValueError("Respuesta pública demasiado grande")
         return raw.decode(charset, errors="replace")
 
-    def _get(self, path):
+    def _get(self, path, form=None):
         url = urljoin(f"https://{self.host}/", path)
         if self._robots is None:
             try:
@@ -91,5 +93,5 @@ class PublicWebSource(Source):
                 self._robots = ""
         if not robots_allowed(self._robots, url):
             raise PermissionError("robots.txt no permite consultar esta ruta")
-        return self._request(url)
+        return self._request(url, form)
 

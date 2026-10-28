@@ -24,3 +24,4 @@ jobbot = ["*.sql"]
 
 [project.optional-dependencies]
 api = ["fastapi", "uvicorn[standard]"]
+browser = ["playwright>=1.48,<2"]

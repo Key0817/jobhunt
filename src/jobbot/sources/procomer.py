@@ -18,7 +18,8 @@ class ProcomerSource(PublicWebSource):
 
     def prepare(self, db):
         self._resume_page = 1
-        rows = db.query("select details from runs where source = ? order by started_at desc limit 20", (self.name,))
+        order = "started_at desc, finished_at desc" + (", rowid desc" if db.is_sqlite else "")
+        rows = db.query(f"select details from runs where source = ? order by {order} limit 20", (self.name,))
         db.conn.commit()
         for row in rows:
             try:

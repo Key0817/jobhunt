@@ -134,6 +134,10 @@ class PublicSourceTests(unittest.TestCase):
         self.assertEqual(len(source.fetch(QUERY)), 0)
 
     def test_procomer_resumes_only_after_a_successful_database_acknowledgement(self):
+        from jobbot import repo
+        clock = patch('jobbot.repo.now', return_value=repo.now())
+        clock.start()
+        self.addCleanup(clock.stop)
         from jobbot.db import Database
         from jobbot.pipeline import collect
         db = Database("sqlite:///:memory:")

@@ -78,6 +78,6 @@ def collect(db: Database, sources: list[Source], query: SearchQuery,
         log.info("%s [%s]: %d encontradas, %d nuevas%s", source.name, status, found, inserted,
                  f" (ERROR: {error})" if error else "")
         if status == "partial":
-            visible = {k: v for k, v in details.items() if k not in {"pending_items", "visited_urls", "cursor_key"}}
+            visible = {k: v for k, v in details.items() if k not in {"pending_items", "visited_urls", "cursor_key", "page_signatures"}}
             log.warning("%s: cobertura incompleta; detalles: %s", source.name, visible)
     return summaries

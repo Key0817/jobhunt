@@ -27,6 +27,176 @@ def schema(url):
 
 
 class PublicAdapterTests(unittest.TestCase):
+    def test_browser_reads_javascript_job_schema_through_the_same_pipeline(self):
+        page = schema('https://example.com/jobs/123')
+        with patch('jobbot.sources.public_adapters.render_public_page', return_value=page) as render:
+            result = PublicCompanySource(company(), fetch_text=lambda _: '<main>Loading jobs</main>').fetch(QUERY)
+        self.assertEqual(result.status, 'success')
+        self.assertEqual(len(result), 1)
+        self.assertIn('browser_html', result.details['adapters'])
+        self.assertEqual(render.call_count, 1)
+
+    def test_empty_loading_job_cards_do_not_prove_a_verified_empty_board(self):
+        result = PublicCompanySource(company(), fetch_text=lambda _: '<div class="job-card">Loading</div>').fetch(QUERY)
+        self.assertEqual(result.status, 'partial')
+        self.assertTrue(result.details['requires_adapter_review'])
+
+    def test_browser_does_not_turn_incomplete_js_pagination_into_success(self):
+        page = schema('https://example.com/jobs/123') + '<meta name="jobbot-incomplete-pagination" content="true">'
+        with patch('jobbot.sources.public_adapters.render_public_page', return_value=page):
+            result = PublicCompanySource(company(), fetch_text=lambda _: '<p>Loading</p>').fetch(QUERY)
+        self.assertEqual(result.status, 'partial')
+        self.assertEqual(len(result), 1)
+        self.assertTrue(result.details['requires_adapter_review'])
+
+    def test_browser_network_policy_allows_search_but_blocks_applications(self):
+        from jobbot.sources.public_adapters import browser_request_allowed as allowed
+        def check(url, resource='fetch', method='GET', robots=''):
+            return allowed(url, resource, method, 'example.com', {'cdn.example.net'}, robots)
+        self.assertTrue(check('https://example.com/api/jobs', method='POST'))
+        self.assertTrue(check('https://example.com/CANDIDATEPORTAL', resource='document'))
+        self.assertFalse(check('https://example.com/jobs/1/apply', method='POST'))
+        self.assertFalse(check('https://example.com/candidate/profile', method='POST'))
+        self.assertFalse(check('https://example.com/private/jobs', robots='User-agent: *\nDisallow: /private'))
+        self.assertFalse(check('https://evil.test/jobs'))
+        self.assertTrue(check('https://cdn.example.net/script.js', resource='script'))
+        self.assertFalse(check('https://cdn.example.net/collect', resource='fetch', method='POST'))
+
+    def test_resumed_browser_page_rechecks_robots_before_launching(self):
+        from jobbot.sources.public_adapters import render_public_page
+        source = PublicCompanySource(company())
+        with patch('importlib.util.find_spec', return_value=object()), patch.object(
+            source, '_request', return_value='User-agent: *\nDisallow: /jobs') as request:
+            self.assertIsNone(render_public_page(source, 'https://example.com/jobs/123'))
+        self.assertEqual(source._browser_issue, 'robots_blocked')
+        self.assertEqual(request.call_args.args[0], 'https://example.com/robots.txt')
+
+    def test_browser_discovers_only_known_public_job_feed_routes(self):
+        from jobbot.sources.public_adapters import board_from_request
+        self.assertEqual(board_from_request('https://boards-api.greenhouse.io/v1/boards/acme/jobs?content=true'), 'https://job-boards.greenhouse.io/acme')
+        self.assertEqual(board_from_request('https://acme.bamboohr.com/careers/list'), 'https://acme.bamboohr.com/careers')
+        self.assertIsNone(board_from_request('https://boards-api.greenhouse.io/v1/boards/acme/candidates'))
+        self.assertIsNone(board_from_request('https://evil.test/v1/boards/acme/jobs'))
+        self.assertIsNone(board_from_request('http://api.lever.co/v0/postings/acme'))
+
+    def test_jibe_feed_keeps_full_description_and_multiple_countries(self):
+        def fetch(url):
+            if url.endswith('robots.txt'):
+                return ''
+            if '/api/jobs' not in url:
+                return '<script>window._jibe = {}; window.searchConfig = {};</script>'
+            return json.dumps({'totalCount': 1, 'jobs': [{'data': {'slug': '12', 'title': 'Developer',
+                'description': 'Build APIs', 'qualifications': 'Python', 'country_code': 'US',
+                'full_location': 'United States; Escazú, Costa Rica', 'recruiterEmail': 'private@example.test'}}]})
+        result = PublicCompanySource(company(), fetch_text=fetch).fetch(QUERY)
+        self.assertEqual(result.status, 'success')
+        self.assertEqual(len(result), 1)
+        self.assertIn('Python', result[0].description)
+        self.assertEqual(result[0].raw['country_codes'], ['CR', 'US'])
+        self.assertNotIn('private@', str(result[0]))
+
+    def test_jibe_server_page_cap_does_not_skip_remaining_jobs(self):
+        calls = []
+        def fetch(url):
+            calls.append(url)
+            if url.endswith('robots.txt'):
+                return ''
+            if '/api/jobs' not in url:
+                return '<script>window._jibe = {}; window.searchConfig = {};</script>'
+            number = int(parse_qs(urlsplit(url).query)['page'][0])
+            ids = ['1', '2'] if number == 1 else ['3']
+            return json.dumps({'totalCount': 3, 'jobs': [{'data': {'slug': i, 'title': 'Developer',
+                'description': 'Build APIs', 'country_code': 'CR'}} for i in ids]})
+        result = PublicCompanySource(company(), fetch_text=fetch).fetch(QUERY)
+        self.assertEqual(result.status, 'success')
+        self.assertEqual(len(result), 3)
+        self.assertTrue(any('page=2' in u and 'limit=2' in u for u in calls))
+
+    def test_identifying_a_feed_does_not_prove_it_was_read_successfully(self):
+        def fetch(url):
+            if url.endswith('robots.txt'):
+                return ''
+            if '/api/jobs' in url:
+                return '<p>Service unavailable</p>'
+            return '<script>window._jibe = {}; window.searchConfig = {};</script>'
+        result = PublicCompanySource(company(), fetch_text=fetch).fetch(QUERY)
+        self.assertEqual(result.status, 'partial')
+        self.assertTrue(result.details['requires_adapter_review'])
+
+    def test_recruiterflow_reads_all_location_groups_and_preserves_remote(self):
+        data = {'location': [['Europe', [{'job_name': 'Developer', 'job_id': 1, 'apply_link': 'acme/jobs/1', 'remote_type': 'Remote'}]],
+                             ['LATAM', [{'job_name': 'Developer', 'job_id': 1, 'apply_link': 'acme/jobs/1', 'remote_type': 'Remote'}]]]}
+        def fetch(url):
+            if url.endswith('robots.txt'):
+                return ''
+            if '/jobs/1' in url:
+                return '<main><h2>Responsibilities</h2>' + ('Build APIs. ' * 15) + '<h2>Requirements</h2>Python experience</main>'
+            return '<script>window.jobsList = ' + json.dumps(data) + ';</script>'
+        result = PublicCompanySource(company(), fetch_text=fetch).fetch(QUERY)
+        self.assertEqual(result.status, 'success')
+        self.assertEqual(len(result), 1)
+        self.assertTrue(result[0].remote)
+        self.assertIn('LATAM', result[0].location)
+
+    def test_hiringroom_reads_next_page_with_public_search_form(self):
+        calls = []
+        card = '<a href="/jobs/get_vacancy/1"><div class="card-vacancy"><h4 class="name__vacancy">Developer</h4><p class="card-text">Costa Rica</p></div></a>'
+        def fetch(url, form=None):
+            calls.append((url, form))
+            if url.endswith('robots.txt'):
+                return ''
+            if '/get_vacancy/' in url:
+                return '<div class="job-description">Build APIs</div>'
+            if '/getVacanciesForPortal/' in url:
+                self.assertEqual(form, {'selectedPage': 2, 'typePortal': 'external'})
+                return json.dumps({'result': 'success', 'data': {'htmlContent': card.replace('/1', '/2'), 'pagination': ''}})
+            return '<script>let typePortal="external";</script><div class="vacancyDataContainer">' + card + '</div><div class="paginationLinks"><li class="actual">1</li><a class="dd_siguiente">Next</a></div>'
+        result = PublicCompanySource(company(), fetch_text=fetch).fetch(QUERY)
+        self.assertEqual(result.status, 'success')
+        self.assertEqual(len(result), 2)
+        self.assertTrue(any(form for _, form in calls))
+
+    def test_job_search_post_respects_robots(self):
+        calls = []
+        def fetch(url, form=None):
+            calls.append(url)
+            return 'User-agent: *\nDisallow: /jobs/getVacanciesForPortal'
+        source = PublicCompanySource(company(), fetch_text=fetch)
+        with self.assertRaises(PermissionError):
+            source._get('/jobs/getVacanciesForPortal/2', {'selectedPage': 2})
+        self.assertEqual(len(calls), 1)
+
+    def test_hydrated_job_lists_ignore_non_job_queries(self):
+        value = {'props': {'pageProps': {'dehydratedState': {'queries': [
+            {'queryKey': ['board', 'locations'], 'state': {'data': {'items': [{'name': 'Developer'}], 'totalItems': 1}}},
+            {'queryKey': ['board', 'job-posts'], 'state': {'data': {'items': [
+                {'id': '1', 'name': 'Developer', 'url': 'https://example.com/jobs/1', 'locations': [{'countryCode': 'CR'}]}], 'totalItems': 1}}}]}}}}
+        def fetch(url):
+            if url.endswith('robots.txt'):
+                return ''
+            if '/jobs/1' in url:
+                return '<div class="job_description">Build APIs</div>'
+            return '<script id="__NEXT_DATA__" type="application/json">' + json.dumps(value) + '</script>'
+        result = PublicCompanySource(company(), fetch_text=fetch).fetch(QUERY)
+        self.assertEqual(result.status, 'success')
+        self.assertEqual(len(result), 1)
+
+    def test_unmapped_hydration_pagination_stays_under_review(self):
+        value = {'props': {'pageProps': {'dehydratedState': {'queries': [{'queryKey': ['job-posts'],
+            'state': {'data': {'items': [], 'totalItems': 10}}}]}}}}
+        page = '<script id="__NEXT_DATA__">' + json.dumps(value) + '</script>'
+        result = PublicCompanySource(company(), fetch_text=lambda _: page).fetch(QUERY)
+        self.assertEqual(result.status, 'partial')
+        self.assertTrue(result.details['requires_adapter_review'])
+        self.assertEqual(result.details['review_category'], 'pagination_contract')
+
+    def test_escaped_greenhouse_configuration_discovers_one_shared_board(self):
+        page = '<script>self.data = "{\\"_type\\":\\"greenhouseJobBoard\\",\\"boardToken\\":\\"acme\\"}";</script>'
+        with patch.object(PublicCompanySource, '_delegate', return_value=FetchResult()) as delegate:
+            result = PublicCompanySource(company(), fetch_text=lambda _: page).fetch(QUERY)
+        self.assertEqual(result.status, 'success')
+        self.assertEqual(delegate.call_args.args[0].board_id, 'acme')
+
     def test_successfactors_searches_country_and_reads_html_details(self):
         calls = []
 
@@ -44,6 +214,20 @@ class PublicAdapterTests(unittest.TestCase):
         self.assertEqual(result[0].country, "CR")
         self.assertIn("Python", result[0].description)
         self.assertTrue(any("locationsearch=Costa+Rica" in url for url in calls))
+
+    def test_dynamic_successfactors_starts_from_filtered_public_page(self):
+        def fetch(url):
+            if url.endswith('robots.txt'):
+                return ''
+            if '/job/' in url:
+                return '<div class="jobdescription">Build APIs</div>'
+            if 'locationsearch=' in url:
+                return '<div id="searchresults"><tr><td><a class="jobTitle-link" href="/job/role/123">Developer</a></td><td class="jobLocation">Costa Rica</td></tr></div>'
+            return '<div id="job-table"></div><script src="/successfactors.js"></script>'
+        result = PublicCompanySource(company(), fetch_text=fetch).fetch(QUERY)
+        self.assertEqual(result.status, 'success')
+        self.assertEqual(len(result), 1)
+        self.assertIn('successfactors_js', result.details['adapters'])
 
     def test_verified_empty_list_is_success_but_ordinary_page_is_not(self):
         empty = '<div id="noresults">No open positions</div>'

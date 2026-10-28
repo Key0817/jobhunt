@@ -93,7 +93,8 @@ class PublicCompanySource(PublicWebSource):
 
     def prepare(self, db):
         self._previous = None
-        rows = db.query("select details from runs where source = ? order by finished_at desc limit 1", (self.name,))
+        order = "finished_at desc, started_at desc" + (", rowid desc" if db.is_sqlite else "")
+        rows = db.query(f"select details from runs where source = ? order by {order} limit 1", (self.name,))
         db.conn.commit()
         if rows:
             try:
@@ -105,8 +106,13 @@ class PublicCompanySource(PublicWebSource):
         self._details["checkpoint_safe"] = True
 
     def fetch(self, query):
-        from .public_adapters import amazon, oracle, html_listing, detail_posting, phenom_links
+        from .public_adapters import (amazon, oracle, html_listing, detail_posting, phenom_links,
+                                     shared_listing, metadata_posting, configured_boards,
+                                     render_public_page, review_category, ADAPTER_REVISION)
         self._start()
+        self._browser_pages = 0
+        self._browser_issue = None
+        rendered_pages = {}
         if re.fullmatch(r"[a-zA-Z0-9.-]+\.oraclecloud\.com", self.host):
             result = oracle(self, query)
             if result is not None:
@@ -121,7 +127,7 @@ class PublicCompanySource(PublicWebSource):
             except Exception as error:
                 self._details = {"adapter": "amazon_search", "failures": [self._failure(error)]}
                 return FetchResult(status="partial", details=self._details)
-        key = hashlib.sha256(json.dumps([self.company.careers_url, query.keywords, query.countries,
+        key = hashlib.sha256(json.dumps([ADAPTER_REVISION, self.company.careers_url, query.keywords, query.countries,
             query.residence_country, query.include_remote_latam], sort_keys=True).encode()).hexdigest()
         queue = [{"url": self._clean_url(self.company.careers_url)}]
         seen, found, failures = set(), {}, []
@@ -132,6 +138,8 @@ class PublicCompanySource(PublicWebSource):
             seen = set(old.get("visited_urls", []))
         schemas_found = fetched = delegated = listings = 0
         delegated_boards = set()
+        adapter_names = set()
+        page_signatures = set(old.get("page_signatures", [])) if resumed else set()
         retry = []
         processed = 0
         while queue and processed < self.MAX_PAGES:
@@ -146,8 +154,15 @@ class PublicCompanySource(PublicWebSource):
             processed += 1
             seen.add(url)
             try:
-                page = self._get(url)
+                if item.get("rendered"):
+                    page = rendered_pages.pop(url, None) or render_public_page(self, url)
+                    if page is None:
+                        raise RuntimeError("No se pudo leer la página con JavaScript")
+                else:
+                    page = self._get(url, item["form"]) if item.get("form") is not None else self._get(url)
                 fetched += 1
+                if 'name="jobbot-incomplete-pagination"' in page:
+                    failures.append("pagination_unknown")
                 if page.lstrip().startswith(("<?xml", "<urlset", "<sitemapindex")):
                     xml = ElementTree.fromstring(page)
                     locations = [node.text.strip() for node in xml.iter() if node.tag.rsplit("}", 1)[-1] == "loc" and node.text]
@@ -171,10 +186,47 @@ class PublicCompanySource(PublicWebSource):
                 if schemas:
                     continue
                 if item.get("metadata"):
-                    posting = detail_posting(self, page, url, item["metadata"], item["adapter"])
+                    try:
+                        posting = detail_posting(self, page, url, item["metadata"], item["adapter"])
+                    except ValueError:
+                        rendered = render_public_page(self, url, page)
+                        if rendered is None:
+                            raise
+                        adapter_names.add("browser_html")
+                        schemas = list(job_schema(rendered))
+                        posting = structured_posting(schemas[0], self.company, url) if schemas else detail_posting(self, rendered, url, item["metadata"], item["adapter"])
                     schemas_found += 1
-                    if eligible(posting, query):
+                    if posting and eligible(posting, query):
                         found[posting.external_id] = posting
+                    continue
+                shared = shared_listing(self, query, page, url, item.get("form"))
+                if shared is not None:
+                    listings += int(not shared.get("bootstrap"))
+                    adapter_names.add(shared["adapter"])
+                    failures.extend(shared["failures"])
+                    records = shared["candidates"]
+                    signature = hashlib.sha256(json.dumps([shared["adapter"], sorted(records)]).encode()).hexdigest()
+                    if records and signature in page_signatures:
+                        failures.append("pagination_not_advancing")
+                        continue
+                    if records:
+                        page_signatures.add(signature)
+                    for target, metadata in records.items():
+                        if not keyword_match(metadata["title"], query):
+                            continue
+                        preview = metadata_posting(self, target, metadata, shared["adapter"])
+                        if preview.raw.get("country_codes") and not eligible(preview, query):
+                            continue
+                        if metadata.get("description"):
+                            posting = preview
+                            if eligible(posting, query):
+                                found[posting.external_id] = posting
+                        elif self._clean_url(target) not in seen:
+                            queue.append({"url": self._clean_url(target), "metadata": metadata, "adapter": shared["adapter"]})
+                    for target in shared["following"]:
+                        next_item = target if isinstance(target, dict) else {"url": target}
+                        if self._same_site(next_item["url"]) and self._clean_url(next_item["url"]) not in seen:
+                            queue.append({**next_item, "url": self._clean_url(next_item["url"])})
                     continue
                 listing = html_listing(self, query, page, url)
                 if listing is not None:
@@ -191,6 +243,7 @@ class PublicCompanySource(PublicWebSource):
                 embedded = [node.get("href") or node.get("src") or "" for node in soup.select("a[href], iframe[src], script[src]")]
                 direct_embeds = {urljoin(url, node.get("src") or "") for node in soup.select("iframe[src], script[src]")}
                 published_links, empty_board = phenom_links(page)
+                published_links += configured_boards(page)
                 if empty_board:
                     listings += 1
                     continue
@@ -237,7 +290,16 @@ class PublicCompanySource(PublicWebSource):
                 # unrelated crawl of its corporate navigation.
                 if board_found:
                     continue
+                if not item.get("rendered") and not item.get("form"):
+                    rendered = render_public_page(self, url, page)
+                    if rendered is not None:
+                        adapter_names.add("browser_html")
+                        rendered_pages[url] = rendered
+                        queue.insert(0, {**item, "rendered": True})
+                        seen.discard(url)
+                        continue
                 candidates = []
+                candidate_metadata = {}
                 for anchor in soup.select("a[href]"):
                     try:
                         target = urljoin(url, anchor["href"])
@@ -254,10 +316,14 @@ class PublicCompanySource(PublicWebSource):
                     if looks_like_job:
                         priority = 0 if keyword_match(label + " " + parts.path.replace("-", " "), query) else 1
                         candidates.append((priority, target))
+                        if (keyword_match(label, query) and 8 <= len(label) <= 180
+                            and re.search(r"/(?:jobs?|position|vacancy)/[^/?]*\d", parts.path, re.I)):
+                            candidate_metadata[target] = {"title": label, "location": ""}
                 distinct = list(dict.fromkeys(sorted(candidates)))
                 if len(distinct) > self.MAX_LINKS:
                     failures.append("link_limit_reached")
-                queue += [{"url": target} for _, target in distinct[:self.MAX_LINKS]]
+                queue += [{"url": target, **({"metadata": candidate_metadata[target], "adapter": "public_html"}
+                          if target in candidate_metadata else {})} for _, target in distinct[:self.MAX_LINKS]]
                 if not candidates and url == self._clean_url(self.company.careers_url):
                     # Prefer sitemap URLs explicitly published by this host.
                     maps = re.findall(r"(?im)^sitemap:\s*(https://\S+)", self._robots or "")
@@ -284,8 +350,13 @@ class PublicCompanySource(PublicWebSource):
             failures.append("visited_limit_reached")
         self._details = {"pages_fetched": fetched, "job_schemas": schemas_found, "eligible": len(found),
             "delegated_boards": delegated, "recognized_lists": listings,
-            "requires_adapter_review": not evidence, "coverage_evidence": evidence,
-            "coverage_gaps": [f for f in dict.fromkeys(failures) if f in {"link_limit_reached", "embedded_board_limit_reached", "sitemap_limit_reached", "pending_limit_reached", "visited_limit_reached"}],
+            "adapters": sorted(adapter_names),
+            "browser_pages": self._browser_pages, "browser_issue": self._browser_issue,
+            "review_category": review_category(failures + ([self._browser_issue] if self._browser_issue else []), evidence),
+            "requires_adapter_review": not evidence or any(f in failures for f in (
+                "pagination_unknown", "pagination_not_advancing", "unreadable_job_detail", "invalid_public_record", "invalid_public_listing", "invalid_job_schema")), "coverage_evidence": evidence,
+            "coverage_gaps": [f for f in dict.fromkeys(failures) if f in {"link_limit_reached", "embedded_board_limit_reached", "sitemap_limit_reached", "pending_limit_reached", "visited_limit_reached", "pagination_unknown", "pagination_not_advancing"}],
+            "page_signatures": sorted(page_signatures) if pending else [],
             "resumed": resumed, "cursor_key": key, "pending_items": pending[:2000],
             "pending_pages": len(pending),
             "visited_urls": sorted(seen)[-5000:] if pending else [], "cycle_complete": not pending and not failures,
@@ -301,6 +372,8 @@ class PublicCompanySource(PublicWebSource):
             return f"http_{error.code}"
         if isinstance(error, PermissionError):
             return "robots_blocked"
+        if isinstance(error, ValueError) and "Descripción pública ausente" in str(error):
+            return "unreadable_job_detail"
         reason = error.reason if isinstance(error, URLError) else error
         if isinstance(reason, SSLCertVerificationError):
             return "tls_certificate_error"
