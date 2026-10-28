@@ -46,6 +46,7 @@ def oracle(source, query):
     key = hashlib.sha256(repr((source.company.careers_url, query)).encode()).hexdigest()
     previous = getattr(source, "_previous", None) or {}
     start = previous.get("pending_offset") if previous.get("checkpoint_safe") and previous.get("cursor_key") == key else None
+    last_page_ids = set(previous.get("last_page_ids", [])) if isinstance(start, int) and start >= 0 else set()
     start = start if isinstance(start, int) and start >= 0 else 0
     pending_offset = None
     facet_id = None
@@ -79,6 +80,11 @@ def oracle(source, query):
             pending_offset = offset
             break
         received += len(rows)
+        page_ids = {str(item.get("Id")) for item in rows if item.get("Id") is not None}
+        if page_ids and page_ids <= last_page_ids:
+            failures.append("pagination_not_advancing")
+            pending_offset = offset
+            break
         for item in rows:
             title, identity = item.get("Title") or "", str(item.get("Id") or "")
             if not identity or not keyword_match(title, query):
@@ -114,6 +120,7 @@ def oracle(source, query):
                 pending_offset = offset
         if pending_offset is not None:
             break
+        last_page_ids = page_ids
         if offset + len(rows) >= listing["TotalJobsCount"]:
             break
         if not rows:
@@ -125,6 +132,7 @@ def oracle(source, query):
     return FetchResult(found.values(), status="partial" if failures else "success", details={
         "adapter": "oracle_candidate_experience", "coverage": "residence_country", "received": received,
         "cursor_key": key, "pending_offset": pending_offset, "resumed": start > 0, "cycle_complete": not failures,
+        "last_page_ids": sorted(last_page_ids),
         "failures": list(dict.fromkeys(failures))})
 
 

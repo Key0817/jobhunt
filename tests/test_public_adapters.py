@@ -180,6 +180,18 @@ class PublicAdapterTests(unittest.TestCase):
         self.assertEqual(result.status, "success")
         self.assertEqual(delegate.call_args.args[0].board_id, "Jobs")
 
+    def test_oracle_repeated_page_cannot_produce_false_success(self):
+        c = replace(company("acme.fa.oraclecloud.com"), careers_url="https://acme.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1/jobs")
+        def fetch(url):
+            if url.endswith('robots.txt'):
+                return ''
+            return json.dumps({"items": [{"TotalJobsCount": 26, "requisitionList": [
+                {"Id": str(i), "Title": "Accountant", "PrimaryLocationCountry": "US"} for i in range(25)]}]})
+        result = PublicCompanySource(c, fetch_text=fetch).fetch(QUERY)
+        self.assertEqual(result.status, 'partial')
+        self.assertIn('pagination_not_advancing', result.details['failures'])
+        self.assertEqual(result.details['pending_offset'], 25)
+
     def test_careers_page_html_description_has_explicit_country(self):
         c = replace(company('careers-page.com'), careers_url='https://careers-page.com/acme')
         def fetch(url):

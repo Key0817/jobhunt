@@ -278,10 +278,14 @@ class PublicCompanySource(PublicWebSource):
         if not evidence:
             failures.append("no_readable_job_schema")
         pending = list({entry["url"]: entry for entry in queue + retry}.values())
+        if len(pending) > 2000:
+            failures.append("pending_limit_reached")
+        if pending and len(seen) > 5000:
+            failures.append("visited_limit_reached")
         self._details = {"pages_fetched": fetched, "job_schemas": schemas_found, "eligible": len(found),
             "delegated_boards": delegated, "recognized_lists": listings,
             "requires_adapter_review": not evidence, "coverage_evidence": evidence,
-            "coverage_gaps": [f for f in dict.fromkeys(failures) if f in {"link_limit_reached", "embedded_board_limit_reached", "sitemap_limit_reached"}],
+            "coverage_gaps": [f for f in dict.fromkeys(failures) if f in {"link_limit_reached", "embedded_board_limit_reached", "sitemap_limit_reached", "pending_limit_reached", "visited_limit_reached"}],
             "resumed": resumed, "cursor_key": key, "pending_items": pending[:2000],
             "pending_pages": len(pending),
             "visited_urls": sorted(seen)[-5000:] if pending else [], "cycle_complete": not pending and not failures,
