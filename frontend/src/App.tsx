@@ -7,17 +7,17 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
 } from 'lucide-react';
-import { STATUSES, STATUS_LABELS } from './types';
-import type { Job, JobStatus, Stats } from './types';
+import { STATUSES } from './types';
+import type { JobStatus, Stats } from './types';
 import JobDetailPage from './JobDetailPage';
 import MyCVsPage from './MyCVsPage';
 import CVDetailPage from './CVDetailPage';
 import SettingsPage from './SettingsPage';
 import OffersPage from './OffersPage';
-import JobCard from './components/JobCard';
+import DashboardColumn from './components/DashboardColumn';
 
 const API_URL = 'http://localhost:8000';
-const CARDS_PER_COLUMN = 25;
+
 type ViewType = 'dashboard' | 'offers' | 'detail' | 'my-cvs' | 'cv-detail' | 'settings';
 // Componente de la Barra Lateral modificado para recibir y cambiar la vista
 const Sidebar = ({ isOpen, toggleSidebar, currentView, setView }: { isOpen: boolean; toggleSidebar: () => void; currentView: ViewType; setView: (view: ViewType) => void; }) => (
@@ -97,7 +97,7 @@ const WeeklyChart = ({ data }: { data: Stats['weekly_applications'] }) => {
 
 // Componente Principal
 function App() {
-  const [jobs, setJobs] = useState<Job[]>([]);
+  const [boardRevision, setBoardRevision] = useState(0);
   const [stats, setStats] = useState<Stats | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -112,14 +112,8 @@ function App() {
 
   const loadData = useCallback(async () => {
     try {
-      const [jobsResponse, statsResponse] = await Promise.all([
-        fetch(`${API_URL}/api/jobs?limit=500`),
-        fetch(`${API_URL}/api/stats`),
-      ]);
-      if (!jobsResponse.ok || !statsResponse.ok) {
-        throw new Error(`La API respondió ${jobsResponse.status} / ${statsResponse.status}`);
-      }
-      setJobs((await jobsResponse.json()) as Job[]);
+      const statsResponse = await fetch(`${API_URL}/api/stats`);
+      if (!statsResponse.ok) throw new Error(`La API respondió ${statsResponse.status}`);
       setStats((await statsResponse.json()) as Stats);
       setError(null);
     } catch (e) {
@@ -145,6 +139,7 @@ function App() {
         throw new Error(`La API respondió ${response.status}`);
       }
       await loadData();
+      setBoardRevision(value => value + 1);
       return true;
     } catch (e) {
       console.error('Error cambiando el estado:', e);
@@ -219,27 +214,7 @@ function App() {
 
         {/* Tablero Kanban */}
         <div className="flex gap-4 overflow-x-auto pb-4">
-          {STATUSES.map((status) => {
-            const columnJobs = jobs.filter((j) => j.status === status);
-            const hidden = columnJobs.length - CARDS_PER_COLUMN;
-            return (
-              <div key={status} className="flex-1 min-w-64">
-                <div className="flex justify-between items-center bg-dark-800 border border-dark-700 rounded-full px-3 py-1 mb-4 text-xs font-semibold">
-                  <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full bg-gray-400"></div>
-                    {STATUS_LABELS[status]}
-                  </div>
-                  <span className="text-gray-400">{stats?.by_status[status] ?? columnJobs.length}</span>
-                </div>
-                <div className="flex flex-col">
-                  {columnJobs.slice(0, CARDS_PER_COLUMN).map((job) => (
-                    <JobCard key={job.id} job={job} onMove={moveJob} onViewDetail={handleViewDetail} />
-                  ))}
-                  {hidden > 0 && <p className="text-xs text-gray-500 text-center">+{hidden} más con menor puntaje</p>}
-                </div>
-              </div>
-            );
-          })}
+          {STATUSES.map(status => <DashboardColumn key={status} status={status} refreshToken={boardRevision} onMove={moveJob} onViewDetail={handleViewDetail} />)}
         </div>
       </>
     );

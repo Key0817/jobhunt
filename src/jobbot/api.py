@@ -3,6 +3,7 @@ from pathlib import Path
 from collections.abc import Iterator
 from contextlib import asynccontextmanager
 from typing import Optional
+from typing import Literal
 import subprocess
 import tempfile
 from io import BytesIO
@@ -15,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from . import repo
 from .config import database_url, load_dotenv
 from .db import Database
-from .schemas import JobDetail, JobResponse, JobStatus, JobUpdateStatus, StatsResponse, CVUpdateStatus
+from .schemas import JobDetail, JobResponse, JobStatus, JobUpdateStatus, StatsResponse, CVUpdateStatus, JobPage
 from .cv.generator import generate_cv, OUTPUT_DIR
 from .cv.ai import AIError, generate_cover_letter
 from .cv.profile import load_profile
@@ -68,6 +69,23 @@ def list_jobs(
     """Ofertas para la tabla y el Kanban. Por defecto, las de mejor puntaje primero."""
     return repo.list_jobs(db, status=status.value if status else None, limit=limit,
                           sort=sort, min_score=min_score, source=source)
+
+
+@app.get("/api/jobs/page", response_model=JobPage)
+def jobs_page(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(25, ge=1, le=100),
+    status: Optional[JobStatus] = None,
+    min_score: int = Query(0, ge=0, le=100),
+    sort: Literal["score", "recent"] = "score",
+    source: Optional[str] = Query(None, max_length=100, pattern="^[A-Za-z0-9_:-]+$"),
+    modality: Literal["all", "remote", "onsite", "unknown"] = "all",
+    days: Optional[int] = Query(None, ge=1, le=3650),
+    db: Database = Depends(get_db),
+):
+    return repo.paginated_jobs(db, page=page, page_size=page_size,
+                              status=status.value if status else None, sort=sort,
+                              min_score=min_score, source=source, modality=modality, days=days)
 
 
 @app.get("/api/jobs/{job_id}", response_model=JobDetail)

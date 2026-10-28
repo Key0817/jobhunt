@@ -217,6 +217,41 @@ def list_jobs(db: Database, status: str | None = None, limit: int = 50,
     return attach_job_origins(db, db.query(sql, tuple(params)))
 
 
+def paginated_jobs(db: Database, *, page=1, page_size=25, status=None,
+                   sort="score", min_score=0, source=None, modality="all", days=None) -> dict:
+    """Filter the full dataset before counting and selecting a stable page."""
+    conditions, params = [], []
+    if status:
+        conditions.append("status = ?")
+        params.append(status)
+    if min_score:
+        conditions.append("score >= ?")
+        params.append(min_score)
+    if source:
+        condition, values = source_condition(source)
+        conditions.append(condition)
+        params.extend(values)
+    if modality in ("remote", "onsite"):
+        conditions.append("remote = ?")
+        params.append(modality == "remote")
+    elif modality == "unknown":
+        review = "json_extract(raw, '$.location_needs_review') = 1" if db.is_sqlite else "raw::jsonb ->> 'location_needs_review' = 'true'"
+        conditions.append(f"(location is null or location = '' or {review})")
+    if days is not None:
+        conditions.append("detected_at >= ?")
+        params.append(now() - timedelta(days=days))
+    where = " where " + " and ".join(conditions) if conditions else ""
+    total = int(db.query("select count(*) as n from jobs" + where, tuple(params))[0]["n"])
+    pages = max(1, (total + page_size - 1) // page_size)
+    page = min(max(1, page), pages)
+    order = "score desc, detected_at desc, id desc" if sort == "score" else "detected_at desc, id desc"
+    rows = db.query("select id, status, score, title, company, country, location, source, url, remote, raw, "
+                    "posted_at, applied_at, detected_at from jobs" + where + " order by " + order + " limit ? offset ?",
+                    tuple(params) + (page_size, (page - 1) * page_size))
+    return {"items": attach_job_origins(db, rows), "total": total, "page": page,
+            "page_size": page_size, "total_pages": pages}
+
+
 def get_job(db: Database, job_id: str) -> dict:
     rows = db.query("select * from jobs where id = ?", (job_id,))
     if not rows:

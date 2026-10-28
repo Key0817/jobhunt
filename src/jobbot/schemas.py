@@ -44,6 +44,14 @@ class JobResponse(BaseModel):
     applied_at: Optional[datetime] = None
 
 
+class JobPage(BaseModel):
+    items: list[JobResponse]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
+
+
 class JobDetail(JobResponse):
     description: str = ""
     notes: str = ""
