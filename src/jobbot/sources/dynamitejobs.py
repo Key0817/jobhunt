@@ -22,7 +22,9 @@ def job_schema(text):
         elif isinstance(value, dict):
             if value.get("@type") == "JobPosting" or "JobPosting" in (value.get("@type") or []):
                 yield value
-            yield from walk(value.get("@graph", []))
+            # ItemList/ListItem is common on public career boards, in addition to @graph.
+            for key in ("@graph", "itemListElement", "item", "mainEntity"):
+                yield from walk(value.get(key, []))
     for script in BeautifulSoup(text, "html.parser").select('script[type="application/ld+json"]'):
         try:
             yield from walk(json.loads(script.string or script.get_text()))

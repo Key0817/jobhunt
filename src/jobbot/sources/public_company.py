@@ -106,6 +106,45 @@ class PublicCompanySource(PublicWebSource):
         self._details["checkpoint_safe"] = True
 
     def fetch(self, query):
+        self._observations = {}
+        result = self._fetch(query)
+        from collections import Counter
+        counts = Counter(self._observations.values())
+        result.details["metrics"] = {
+            "records_seen": max(len(self._observations), result.details.get("received", 0)),
+            "discarded_location": counts["location"],
+            "discarded_keywords": counts["keywords"],
+            "discarded_expired": counts["expired"],
+            "invalid_records": counts["invalid"],
+            "accepted": len(result),
+            "scope": "public_records_evaluated",
+        }
+        if result.details.get("delegated_boards"):
+            # Delegated ATS readers filter before returning; do not invent their
+            # discarded counts from the subset returned to this reader.
+            result.details["metrics"].update(discarded_location=None, discarded_keywords=None,
+                                              scope="public_records_with_delegated_upstream_unknown")
+        self._details = result.details
+        return result
+
+    def _observe(self, identity, outcome):
+        if not hasattr(self, "_observations"):
+            self._observations = {}
+        self._observations[str(identity)] = outcome
+
+    def _accept(self, posting, query, identity):
+        if posting is None:
+            self._observe(identity, "expired")
+        elif not keyword_match(posting.title, query):
+            self._observe(identity, "keywords")
+        elif not eligible(posting, query):
+            self._observe(identity, "location")
+        else:
+            self._observe(identity, "accepted")
+            return True
+        return False
+
+    def _fetch(self, query):
         from .public_adapters import (amazon, oracle, html_listing, detail_posting, phenom_links,
                                      shared_listing, metadata_posting, configured_boards,
                                      render_public_page, review_category, ADAPTER_REVISION)
@@ -179,11 +218,18 @@ class PublicCompanySource(PublicWebSource):
                 for schema in schemas:
                     try:
                         posting = structured_posting(schema, self.company, url)
-                        if posting and eligible(posting, query) and keyword_match(posting.title, query):
+                        if self._accept(posting, query, schema.get("url") or schema.get("title") or url):
                             found[posting.external_id] = posting
                     except (ValueError, TypeError, AttributeError):
+                        self._observe(schema.get("url") or schema.get("title") or url, "invalid")
                         failures.append("invalid_job_schema")
+                        retry.append(item)
+                        seen.discard(url)
                 if schemas:
+                    for anchor in BeautifulSoup(page, "html.parser").select("a[rel='next'][href]"):
+                        target = urljoin(url, anchor["href"])
+                        if self._same_site(target) and self._clean_url(target) not in seen:
+                            queue.append({"url": self._clean_url(target)})
                     continue
                 if item.get("metadata"):
                     try:
@@ -196,7 +242,7 @@ class PublicCompanySource(PublicWebSource):
                         schemas = list(job_schema(rendered))
                         posting = structured_posting(schemas[0], self.company, url) if schemas else detail_posting(self, rendered, url, item["metadata"], item["adapter"])
                     schemas_found += 1
-                    if posting and eligible(posting, query):
+                    if self._accept(posting, query, url):
                         found[posting.external_id] = posting
                     continue
                 shared = shared_listing(self, query, page, url, item.get("form"))
@@ -213,13 +259,15 @@ class PublicCompanySource(PublicWebSource):
                         page_signatures.add(signature)
                     for target, metadata in records.items():
                         if not keyword_match(metadata["title"], query):
+                            self._observe(target, "keywords")
                             continue
                         preview = metadata_posting(self, target, metadata, shared["adapter"])
                         if preview.raw.get("country_codes") and not eligible(preview, query):
+                            self._observe(target, "location")
                             continue
                         if metadata.get("description"):
                             posting = preview
-                            if eligible(posting, query):
+                            if self._accept(posting, query, target):
                                 found[posting.external_id] = posting
                         elif self._clean_url(target) not in seen:
                             queue.append({"url": self._clean_url(target), "metadata": metadata, "adapter": shared["adapter"]})
@@ -279,13 +327,18 @@ class PublicCompanySource(PublicWebSource):
                         delegated += 1
                         board_found = True
                         for posting in result:
+                            self._observe(posting.url, "accepted")
                             identity_key = board.platform + ":" + (urlsplit(board.careers_url).hostname or "") + ":" + str(posting.external_id)
                             found[identity_key] = replace(posting, source=self.name, external_id=identity_key,
                                 raw={**posting.raw, "origin_platform": board.platform, "platform": "public_web"})
                         if result.status != "success":
                             failures.append("embedded_board_partial")
+                            retry.append(item)
+                            seen.discard(url)
                     except Exception as error:
                         failures.append("embedded_board:" + self._failure(error))
+                        retry.append(item)
+                        seen.discard(url)
                 # A company page with a complete public ATS board does not need an
                 # unrelated crawl of its corporate navigation.
                 if board_found:
@@ -320,10 +373,12 @@ class PublicCompanySource(PublicWebSource):
                             and re.search(r"/(?:jobs?|position|vacancy)/[^/?]*\d", parts.path, re.I)):
                             candidate_metadata[target] = {"title": label, "location": ""}
                 distinct = list(dict.fromkeys(sorted(candidates)))
-                if len(distinct) > self.MAX_LINKS:
-                    failures.append("link_limit_reached")
+                # Keep every discovered link in the checkpoint. MAX_PAGES and the
+                # time budget bound each run; truncating to MAX_LINKS loses jobs.
                 queue += [{"url": target, **({"metadata": candidate_metadata[target], "adapter": "public_html"}
-                          if target in candidate_metadata else {})} for _, target in distinct[:self.MAX_LINKS]]
+                          if target in candidate_metadata else {})} for _, target in distinct[:2000]]
+                if len(distinct) > 2000:
+                    failures.append("pending_limit_reached")
                 if not candidates and url == self._clean_url(self.company.careers_url):
                     # Prefer sitemap URLs explicitly published by this host.
                     maps = re.findall(r"(?im)^sitemap:\s*(https://\S+)", self._robots or "")

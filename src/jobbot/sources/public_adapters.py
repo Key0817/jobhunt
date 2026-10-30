@@ -13,7 +13,7 @@ from .companies import country_codes, eligible, keyword_match, parse_date, remot
 from .getonboard import html_to_text
 
 # Increment when discovery changes so an old unsupported crawl is inspected again.
-ADAPTER_REVISION = 2
+ADAPTER_REVISION = 3
 
 
 def board_from_request(url):
@@ -433,7 +433,10 @@ def shared_listing(source, query, page, page_url, form=None):
                 card = anchor.select_one(card_selector) or anchor.parent
             title_node = card.select_one(title_selector) if title_selector else None
             title = (title_node or anchor).get_text(" ", strip=True)
-            if not title or not keyword_match(title, query):
+            if not title:
+                continue
+            if not keyword_match(title, query):
+                source._observe(target, "keywords")
                 continue
             location = card.select_one(location_selector)
             records.setdefault(target, {"title": title, "location": location.get_text(" ", strip=True) if location else ""})
@@ -530,7 +533,11 @@ def oracle(source, query):
             break
         for item in rows:
             title, identity = item.get("Title") or "", str(item.get("Id") or "")
-            if not identity or not keyword_match(title, query):
+            if not identity:
+                source._observe(repr(item), "invalid")
+                continue
+            if not keyword_match(title, query):
+                source._observe(identity, "keywords")
                 continue
             location = ", ".join(str(item.get(k) or "") for k in ("PrimaryLocation", "PrimaryLocationCountry"))
             codes = country_codes(location)
@@ -541,6 +548,7 @@ def oracle(source, query):
             preview = JobPosting(source=source.name, title=title, url="", location=location,
                 country=codes[0] if len(codes) == 1 else None, remote=remote, raw={"country_codes": codes})
             if not eligible(preview, query):
+                source._observe(identity, "location")
                 continue
             try:
                 detail = json.loads(source._get(root + "recruitingCEJobRequisitionDetails?" + urlencode({
@@ -552,13 +560,16 @@ def oracle(source, query):
                     raise ValueError("Descripción pública de Oracle ausente")
                 expiry = parse_date(item.get("PostingEndDate"))
                 if expiry and (expiry if expiry.tzinfo else expiry.replace(tzinfo=timezone.utc)) < datetime.now(timezone.utc):
+                    source._observe(identity, "expired")
                     continue
+                source._observe(identity, "accepted")
                 found[identity] = JobPosting(source=source.name, external_id=identity, title=title,
                     company=source.company.name, url=f"https://{source.host}{site_path}/job/{identity}",
                     description=text[:20000], location=location, country=preview.country, remote=remote,
                     posted_at=parse_date(item.get("PostedDate")),
                     raw={"platform": "public_web", "extraction": "oracle_candidate_experience", "country_codes": codes})
             except Exception as error:
+                source._observe(identity, "invalid")
                 failures.append("detail:" + source._failure(error))
                 pending_offset = offset
         if pending_offset is not None:
@@ -600,12 +611,15 @@ def amazon(source, query):
         received += len(rows)
         for item in rows:
             title = item.get("title") or ""
+            identity = str(item.get("id_icims") or item.get("id") or item.get("job_path") or repr(item))
             if not keyword_match(title, query):
+                source._observe(identity, "keywords")
                 continue
             text = "\n\n".join(html_to_text(item.get(k) or "") for k in (
                 "description", "basic_qualifications", "preferred_qualifications"))
             url = urljoin(source.company.careers_url, item.get("job_path") or "")
             if not source._same_site(url) or not re.search(r"/jobs/\d+/", urlsplit(url).path) or not text:
+                source._observe(identity, "invalid")
                 failures.append("invalid_record")
                 continue
             location = str(item.get("location") or item.get("normalized_location") or "")
@@ -624,7 +638,7 @@ def amazon(source, query):
                 description=text[:20000], location=location, country=codes[0] if len(codes) == 1 else None,
                 remote=remote_from_location(location), posted_at=date,
                 raw={"platform": "public_web", "extraction": "amazon_search", "country_codes": codes})
-            if eligible(posting, query):
+            if source._accept(posting, query, identity):
                 found[posting.external_id] = posting
         if len(rows) < 100 or (isinstance(payload.get("hits"), int) and offset + len(rows) >= payload["hits"]):
             break
@@ -665,6 +679,14 @@ def html_listing(source, query, page, page_url):
             if not soup.select_one("#searchresults, a.jobTitle-link, #noresults"):
                 return None
 
+    # An empty container can be a JavaScript loading shell. Require actual
+    # records or a published empty-state message before treating it as a list.
+    if not soup.select(selector) and not re.search(
+        r"no (?:open positions|jobs found|jobs available|results found|matching jobs)"
+        r"|no (?:hay|tenemos) (?:vacantes|ofertas)|ninguna (?:oferta|vacante)",
+        soup.get_text(" ", strip=True), re.I):
+        return None
+
     candidates = {}
     for anchor in soup.select(selector):
         target = urljoin(page_url, anchor.get("href") or "")
@@ -676,7 +698,10 @@ def html_listing(source, query, page, page_url):
         title = anchor.get_text(" ", strip=True)
         if not title or title.lower() in {"apply now", "learn more", "view all jobs"}:
             continue
-        if not source._same_site(target) or not keyword_match(title, query):
+        if not source._same_site(target):
+            continue
+        if not keyword_match(title, query):
+            source._observe(target, "keywords")
             continue
         card = anchor.find_parent("tr") or anchor.find_parent("li") or anchor.parent
         location = ""
@@ -752,7 +777,7 @@ def detail_posting(source, page, url, metadata, adapter):
     return metadata_posting(source, url, {**metadata, "description": str(node), "location": location}, adapter)
 
 
-def audit_catalog(output, only_review=False):
+def audit_catalog(output, only_review=False, company_ids=None):
     """Read-only audit of all configured sites, grouped by host to limit traffic."""
     from concurrent.futures import ThreadPoolExecutor, as_completed
     from pathlib import Path
@@ -765,6 +790,8 @@ def audit_catalog(output, only_review=False):
     load_dotenv()
     query, _ = load_search_config()
     companies = [c for c in load_companies() if c.platform == "public_web"]
+    if company_ids:
+        companies = [c for c in companies if c.id in company_ids]
     if only_review:
         load_dotenv()
         db = Database(database_url())
@@ -821,5 +848,6 @@ if __name__ == "__main__":
     parser.add_argument("--audit", action="store_true", required=True)
     parser.add_argument("--only-review", action="store_true", help="Solo fuentes cuyo último run requiere revisar el adaptador")
     parser.add_argument("--output", default="generated/public-web-audit.json")
+    parser.add_argument("--companies", help="IDs separados por comas para una auditoría acotada")
     args = parser.parse_args()
-    audit_catalog(args.output, args.only_review)
+    audit_catalog(args.output, args.only_review, set(args.companies.split(",")) if args.companies else None)

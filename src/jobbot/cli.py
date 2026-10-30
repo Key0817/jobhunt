@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import shutil
 import socket
 import subprocess
@@ -162,6 +163,11 @@ def main(argv: list[str] | None = None) -> int:
     c = sub.add_parser("collect", help="Busca ofertas en las fuentes configuradas")
     c.add_argument("--sources", help="Lista separada por comas; por defecto, config/search.yml")
     c.add_argument("--strict", action="store_true", help="Devuelve error también ante cobertura parcial")
+    c.add_argument("--resume-passes", type=int, choices=range(1, 6), default=2,
+                   help="Máximo de pasadas de checkpoints pendientes por fuente (1–5; por defecto 2)")
+    health = sub.add_parser("sources-health", help="Diagnóstico de fuentes y último ciclo completo comprobado")
+    health.add_argument("--source", help="Fuente o plataforma, por ejemplo public_web")
+    health.add_argument("--json", action="store_true", help="Devuelve el informe como JSON")
     sub.add_parser("rank", help="Recalcula el puntaje de todas las ofertas con config/ranking.yml")
     ls = sub.add_parser("list", help="Lista las ofertas guardadas")
     ls.add_argument("--status", choices=STATUSES)
@@ -195,6 +201,17 @@ def main(argv: list[str] | None = None) -> int:
             db.init_schema()
             print("Base de datos lista.")
             return 0
+        if args.cmd == "sources-health":
+            from .source_health import source_health
+            rows = source_health(db, args.source)
+            if args.json:
+                print(json.dumps(rows, ensure_ascii=False, default=str, indent=2))
+            else:
+                for row in rows:
+                    print(f"{row['source']} [{row['status']}] {row['health']['outcome']} | "
+                          f"métricas: {row['metrics']} | último ciclo completo: {row['last_complete_cycle'] or 'sin evidencia'} | "
+                          f"pendientes: {row['health'].get('pending_pages')} | causas: {row['failures']}")
+            return 0
         db.migrate()  # agrega columnas nuevas si la base es de una versión anterior
 
         if args.cmd == "collect":
@@ -203,7 +220,10 @@ def main(argv: list[str] | None = None) -> int:
             profile = load_ranking_profile(query.keywords)
             if profile is None:
                 log.warning("No se encontró config/ranking.yml: las ofertas nuevas quedan sin puntaje")
-            summaries = collect(db, build_sources(names, db=db), query, profile)
+            summaries = collect(db, build_sources(names, db=db), query, profile, resume_passes=args.resume_passes)
+            if os.environ.get("GITHUB_STEP_SUMMARY"):
+                from .source_health import github_summary
+                github_summary(summaries, os.environ["GITHUB_STEP_SUMMARY"])
             failed = sum(s.status == "failed" or bool(s.error) for s in summaries)
             partial = sum(s.status == "partial" for s in summaries)
             log.info("Resumen: %d fuentes, %d parciales, %d con errores; %d ofertas nuevas",

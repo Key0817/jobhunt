@@ -6,6 +6,7 @@ from datetime import datetime
 import http.client
 import json
 import os
+import random
 from pathlib import Path
 import re
 import time
@@ -135,7 +136,8 @@ class CompanySource(Source):
         return self._request(url, payload)
 
     def _request(self, url: str, payload=None):
-        for attempt in range(2):
+        # Retry reads/search requests only, within the company's existing budget.
+        for attempt in range(3):
             remaining = self._deadline - self._clock()
             if remaining <= 0:
                 raise TimeoutError("Presupuesto de tiempo de la empresa agotado")
@@ -144,7 +146,7 @@ class CompanySource(Source):
                     return self._fetch_json(url, payload) if payload is not None else self._fetch_json(url)
                 request = Request(url, data=json.dumps(payload).encode() if payload is not None else None,
                                   headers={"Accept": "application/json", "Content-Type": "application/json", "User-Agent": "jobbot-personal/0.3"})
-                with urlopen(request, timeout=min(10, remaining)) as response:
+                with urlopen(request, timeout=min(10 * 1.5 ** attempt, 20, remaining)) as response:
                     raw = response.read(8_000_001)
                 if len(raw) > 8_000_000:
                     raise ValueError("Respuesta de la bolsa demasiado grande")
@@ -152,10 +154,30 @@ class CompanySource(Source):
             except HTTPError as exc:
                 if exc.code != 429 and exc.code < 500:
                     raise
-                if attempt:
+                if attempt == 2:
                     raise
-            except (URLError, TimeoutError, ConnectionError, http.client.HTTPException):
-                if attempt:
+                last_error = exc
+                retry_after = exc.headers.get("Retry-After") if exc.headers else None
+            except (URLError, TimeoutError, ConnectionError, http.client.HTTPException) as exc:
+                if attempt == 2:
                     raise
-            self._sleep(min(1, max(0, self._deadline - self._clock())))
+                last_error, retry_after = exc, None
+            delay = 2 ** attempt + random.uniform(0, 0.25)
+            if retry_after:
+                try:
+                    delay = max(delay, float(retry_after))
+                except ValueError:
+                    from email.utils import parsedate_to_datetime
+                    from datetime import timezone
+                    try:
+                        date = parsedate_to_datetime(retry_after)
+                        delay = max(delay, (date - datetime.now(timezone.utc)).total_seconds())
+                    except (TypeError, ValueError, OverflowError):
+                        pass
+            if delay >= self._deadline - self._clock():
+                raise TimeoutError("Presupuesto insuficiente para reintentar la empresa") from last_error
+            import logging
+            logging.getLogger("jobbot").warning("%s: %s; reintento %d/2 en %.1f s", self.name,
+                                               type(last_error).__name__, attempt + 1, delay)
+            self._sleep(delay)
         raise RuntimeError("Sin respuesta de la bolsa")
