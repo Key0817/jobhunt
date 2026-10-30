@@ -1,6 +1,11 @@
 # Secretos y datos personales (NUNCA subir)
 .env
 config/profile.yml
+# Plantilla personal: subir al bucket privado, no a imágenes ni commits nuevos.
+templates/CV_Master.docx
+frontend/.env
+frontend/.env.local
+frontend/.env.production
 
 # Entorno virtual y archivos generados
 .venv/

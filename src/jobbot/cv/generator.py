@@ -1,5 +1,7 @@
 
 from pathlib import Path
+import os
+from io import BytesIO
 
 from docxtpl import DocxTemplate
 
@@ -7,6 +9,7 @@ from .profile import PROJECT_ROOT, load_profile
 from .ai import generate_profile
 from .. import repo
 from ..db import Database
+from .. import storage
 
 
 TEMPLATE_PATH = PROJECT_ROOT / "templates" / "CV_Master.docx"
@@ -28,7 +31,9 @@ def generate_cv(
     company: str = "",
 ) -> dict:
     """Genera el DOCX y, si recibe db, registra la versión pendiente de revisión."""
-    if not TEMPLATE_PATH.is_file():
+    template_path = Path(os.environ.get('CV_TEMPLATE_PATH') or str(TEMPLATE_PATH))
+    template = BytesIO(storage.read(storage.reference(os.environ['CV_TEMPLATE_OBJECT_KEY']))) if os.environ.get('CV_TEMPLATE_OBJECT_KEY') else template_path
+    if not isinstance(template, BytesIO) and not template_path.is_file():
         raise FileNotFoundError(f"No existe la plantilla: {TEMPLATE_PATH}")
 
     profile = load_profile()
@@ -36,7 +41,8 @@ def generate_cv(
     profile_key = "ai"
     selected_text = generated.text
 
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    if not storage.enabled():
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     from datetime import datetime
 
@@ -47,22 +53,28 @@ def generate_cv(
     )
     output_path = OUTPUT_DIR / filename
 
-    doc = DocxTemplate(str(TEMPLATE_PATH))
+    doc = DocxTemplate(template if isinstance(template, BytesIO) else str(template))
     doc.render({"perfil": selected_text}, autoescape=True)
-    doc.save(str(output_path))
+    if storage.enabled():
+        buffer = BytesIO()
+        doc.save(buffer)
+        stored_path = storage.write('cvs/' + filename, buffer.getvalue(), 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+    else:
+        doc.save(str(output_path))
+        stored_path = str(output_path)
 
     result = {
         "job_id": job_id,
         "profile_key": profile_key,
         "profile_text": selected_text,
         "model_name": generated.model_name,
-        "file_path": str(output_path),
+        "file_path": stored_path,
         "status": "pending_review",
         "version_id": None,
     }
 
     if db is not None:
-        relative_path = output_path.relative_to(PROJECT_ROOT).as_posix()
+        relative_path = stored_path if storage.enabled() else output_path.relative_to(PROJECT_ROOT).as_posix()
         version = repo.save_cv_version(
             db=db,
             job_id=job_id,

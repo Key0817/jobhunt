@@ -1,10 +1,11 @@
+import { API_URL, apiFetch } from './api';
 
 import { useCallback, useEffect, useState } from 'react';
 import { ArrowLeft, ExternalLink, FileText, RefreshCw } from 'lucide-react';
 import { STATUSES, STATUS_LABELS } from './types';
 import type { Job, JobStatus } from './types';
 
-const API_URL = 'http://localhost:8000';
+
 
 interface JobDetailPageProps {
   jobId: string;
@@ -45,7 +46,7 @@ export default function JobDetailPage({jobId,onBack,onMove,onViewCV,}: JobDetail
     setLoadingVersions(true);
 
     try {
-      const response = await fetch(
+      const response = await apiFetch(
         `${API_URL}/api/jobs/${jobId}/cv`,
       );
 
@@ -70,7 +71,7 @@ export default function JobDetailPage({jobId,onBack,onMove,onViewCV,}: JobDetail
       setLoading(true);
 
       try {
-        const response = await fetch(`${API_URL}/api/jobs/${jobId}`);
+        const response = await apiFetch(`${API_URL}/api/jobs/${jobId}`);
 
         if (!response.ok) {
           throw new Error(`Error al cargar la oferta: ${response.status}`);
@@ -123,7 +124,7 @@ export default function JobDetailPage({jobId,onBack,onMove,onViewCV,}: JobDetail
     setCvError('');
 
     try {
-      const response = await fetch(
+      const response = await apiFetch(
         `${API_URL}/api/jobs/${job.id}/cv`,
         { method: 'POST' },
       );

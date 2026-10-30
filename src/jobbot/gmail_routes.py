@@ -1,8 +1,10 @@
 """OAuth settings endpoints for the local, single-user dashboard."""
 import html
 import json
+import os
 import secrets
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
+from .deployment import production, frontend_origins
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -16,12 +18,16 @@ class ConnectRequest(BaseModel):
 
 
 def protect_local(request: Request, mutation=False):
-    if request.url.hostname not in {"localhost", "127.0.0.1"} or not request.client or request.client.host not in {"127.0.0.1", "::1"}:
+    if production():
+        expected = urlsplit(os.environ.get('GMAIL_OAUTH_REDIRECT_URI', ''))
+        if request.url.hostname != expected.hostname or request.url.scheme != "https":
+            raise HTTPException(403, detail="Host OAuth no permitido.")
+    elif request.url.hostname not in {"localhost", "127.0.0.1"} or not request.client or request.client.host not in {"127.0.0.1", "::1"}:
         raise HTTPException(status_code=403, detail="Los ajustes de Gmail solo están disponibles desde el equipo local.")
     origin = request.headers.get("origin")
-    if origin is not None and origin not in oauth.FRONTEND_ORIGINS:
+    if origin is not None and origin not in frontend_origins():
         raise HTTPException(status_code=403, detail="Origen no permitido.")
-    if mutation and (origin not in oauth.FRONTEND_ORIGINS or request.headers.get("content-type", "").split(";")[0] != "application/json"):
+    if mutation and (origin not in frontend_origins() or request.headers.get("content-type", "").split(";")[0] != "application/json"):
         raise HTTPException(status_code=403, detail="Inicia esta acción desde Ajustes de JobHunt.")
 
 
@@ -37,7 +43,7 @@ if (window.opener) {{window.opener.postMessage({payload}, {json.dumps(origin)});
     response = HTMLResponse(body, headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer",
         "Content-Security-Policy": f"default-src 'none'; script-src 'nonce-{nonce}'; frame-ancestors 'none'"})
     for name in ("gmail_oauth_state", "gmail_oauth_origin"):
-        response.delete_cookie(name, path="/api/settings/gmail", httponly=True, samesite="lax")
+        response.delete_cookie(name, path="/api/settings/gmail", httponly=True, samesite="lax", secure=production())
     return response
 
 
@@ -60,7 +66,7 @@ def create_router(get_db):
         launch = oauth.OAuthConfig.load().redirect_uri.removesuffix("/callback") + "/authorize?" + urlencode({"state": state})
         response = JSONResponse({"authorization_url": url, "launch_url": launch}, headers={"Cache-Control": "no-store"})
         for name, value in (("gmail_oauth_state", state), ("gmail_oauth_origin", origin)):
-            response.set_cookie(name, value, max_age=600, path="/api/settings/gmail", httponly=True, samesite="lax")
+            response.set_cookie(name, value, max_age=600, path="/api/settings/gmail", httponly=True, samesite="lax", secure=production())
         return response
 
     @router.get("/authorize")
@@ -70,10 +76,10 @@ def create_router(get_db):
         try:
             url, origin = oauth.browser_authorization(db, state)
         except oauth.GmailOAuthError as problem:
-            return callback_page("http://localhost:5173", False, str(problem))
+            return callback_page(sorted(frontend_origins())[0], False, str(problem))
         response = RedirectResponse(url, status_code=302, headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"})
         for name, value in (("gmail_oauth_state", state), ("gmail_oauth_origin", origin)):
-            response.set_cookie(name, value, max_age=600, path="/api/settings/gmail", httponly=True, samesite="lax")
+            response.set_cookie(name, value, max_age=600, path="/api/settings/gmail", httponly=True, samesite="lax", secure=production())
         return response
 
     @router.get("/callback")
@@ -82,8 +88,8 @@ def create_router(get_db):
         request.scope["query_string"] = b""
         protect_local(request)
         origin = request.cookies.get("gmail_oauth_origin", "http://localhost:5173")
-        if origin not in oauth.FRONTEND_ORIGINS:
-            origin = "http://localhost:5173"
+        if origin not in frontend_origins():
+            origin = sorted(frontend_origins())[0]
         try:
             origin = oauth.finish_connection(db, state, request.cookies.get("gmail_oauth_state"), code, denied=bool(error))
             return callback_page(origin, True, "Gmail quedó conectado para importar alertas en modo de solo lectura.")

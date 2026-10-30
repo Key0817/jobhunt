@@ -1,3 +1,4 @@
+import { API_URL, apiFetch } from './api';
 
 import { useEffect, useRef, useState } from "react";
 import {
@@ -12,7 +13,7 @@ import {
     Copy,
 } from "lucide-react";
 
-const API_URL = "http://localhost:8000";
+
 
 type CVDetail = {
     id: string;
@@ -73,7 +74,7 @@ export default function CVDetailPage({
         setStatusError(null);
         setStatusSaved(false);
         try {
-            const response = await fetch(
+            const response = await apiFetch(
                 `${API_URL}/api/cvs/${encodeURIComponent(versionId)}/status`,
                 { method: "PATCH", headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({ status }), signal: controller.signal }
@@ -105,7 +106,7 @@ export default function CVDetailPage({
         setLetterError(null);
         setCopied(false);
         try {
-            const response = await fetch(
+            const response = await apiFetch(
                 `${API_URL}/api/cvs/${encodeURIComponent(versionId)}/cover-letter`,
                 { method: "POST", signal: controller.signal }
             );
@@ -142,7 +143,7 @@ export default function CVDetailPage({
         setPdfError(null);
 
         try {
-            const response = await fetch(
+            const response = await apiFetch(
                 `${API_URL}/api/cvs/${encodeURIComponent(versionId)}/pdf`
             );
 
@@ -186,7 +187,7 @@ export default function CVDetailPage({
             setError(null);
 
             try {
-                const response = await fetch(
+                const response = await apiFetch(
                     `${API_URL}/api/cvs/${encodeURIComponent(versionId)}`,
                     { signal: controller.signal }
                 );

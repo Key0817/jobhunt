@@ -1,0 +1,16 @@
+.git
+.github
+.venv
+.env
+.env.*
+.tmp
+**/__pycache__
+**/*.egg-info
+**/node_modules
+frontend
+templates
+generated
+config/profile.yml
+*.db
+docs
+tests

@@ -1,3 +1,4 @@
+import { API_URL, apiFetch } from './api';
 import { useCallback, useEffect, useState } from 'react';
 import type { Job } from './types';
 
@@ -15,7 +16,7 @@ export function useJobPage(query: string, refreshToken = 0) {
       setLoading(true);
       setError('');
       try {
-        const response = await fetch(`http://localhost:8000/api/jobs/page?${query}`, { signal: controller.signal });
+        const response = await apiFetch(`${API_URL}/api/jobs/page?${query}`, { signal: controller.signal });
         if (!response.ok) throw new Error('No se pudieron cargar las ofertas.');
         const result: JobPage = await response.json();
         if (!controller.signal.aborted) setData(result);

@@ -4,13 +4,10 @@ from collections.abc import Iterator
 from contextlib import asynccontextmanager
 from typing import Optional
 from typing import Literal
-import subprocess
-import tempfile
 from io import BytesIO
 from fastapi.responses import StreamingResponse
 
-from fastapi import Depends, FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from . import repo
@@ -21,12 +18,21 @@ from .cv.generator import generate_cv, OUTPUT_DIR
 from .cv.ai import AIError, generate_cover_letter
 from .cv.profile import load_profile
 from .gmail_routes import create_router as gmail_router
+from .auth import require_user
+from .deployment import production, frontend_origins, validate_production
+from .storage import StorageError
+from .cv.pdf import cv_pdf_bytes, PDFConversionError
+from fastapi.responses import JSONResponse
 
 load_dotenv()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    validate_production()
+    if production():
+        from .storage import verify_private_bucket
+        verify_private_bucket()
     db = Database(database_url())
     try:
         db.migrate()
@@ -35,11 +41,28 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="JobHunt API", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="JobHunt API", version="1.0.0", lifespan=lifespan, dependencies=[Depends(require_user)],
+              docs_url=None if production() else "/docs", redoc_url=None if production() else "/redoc",
+              openapi_url=None if production() else "/openapi.json")
+
+
+@app.get("/healthz")
+def healthz():
+    return {"status": "ok"}
+
+
+@app.get('/api/auth/me')
+def authenticated_user(request: Request):
+    return {'id': getattr(request.state, 'user_id', None)}
+
+
+@app.exception_handler(StorageError)
+async def storage_problem(request, error):
+    return JSONResponse({"detail": str(error)}, status_code=503, headers={"Cache-Control": "no-store"})
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=sorted(frontend_origins()),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -146,9 +169,7 @@ def create_job_cv(job_id: str, db: Database = Depends(get_db)):
         "version_id": result["version_id"],
         "profile_key": result["profile_key"],
         "status": result["status"],
-        "file_path": Path(result["file_path"]).relative_to(
-            OUTPUT_DIR.parent
-        ).as_posix(),
+        "file_path": result["file_path"] if result["file_path"].startswith("storage://") else Path(result["file_path"]).relative_to(OUTPUT_DIR.parent).as_posix(),
     }
 
 
@@ -242,82 +263,18 @@ def download_cv_pdf(
             detail="Esta versión no tiene un archivo generado.",
         )
 
-    # Las rutas de generator.py son relativas a PROJECT_ROOT.
-    project_root = OUTPUT_DIR.parent.resolve()
-    file_path = Path(stored_path)
-
-    if not file_path.is_absolute():
-        file_path = project_root / file_path
-
-    file_path = file_path.resolve()
-
-    # Evita acceder a archivos fuera del proyecto.
-    if not file_path.is_relative_to(project_root):
-        raise HTTPException(
-            status_code=400,
-            detail="Ruta de documento no permitida.",
-        )
-
-    if not file_path.is_file():
-        raise HTTPException(
-            status_code=404,
-            detail="No se encontró el archivo DOCX de esta versión.",
-        )
-
-    if file_path.suffix.lower() != ".docx":
-        raise HTTPException(
-            status_code=400,
-            detail="El documento generado no es un archivo DOCX.",
-        )
-
     try:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            subprocess.run(
-                [
-                    "soffice",
-                    "--headless",
-                    "--convert-to",
-                    "pdf",
-                    "--outdir",
-                    temp_dir,
-                    str(file_path),
-                ],
-                check=True,
-                capture_output=True,
-                text=True,
-                timeout=60,
-            )
-
-            pdf_path = Path(temp_dir) / f"{file_path.stem}.pdf"
-
-            if not pdf_path.is_file():
-                raise HTTPException(
-                    status_code=500,
-                    detail="LibreOffice no generó el archivo PDF.",
-                )
-
-            pdf_bytes = pdf_path.read_bytes()
-
+        pdf_bytes = cv_pdf_bytes(stored_path)
     except FileNotFoundError as exc:
-        raise HTTPException(
-            status_code=500,
-            detail="LibreOffice no está instalado o soffice no está en el PATH.",
-        ) from exc
-    except subprocess.TimeoutExpired as exc:
-        raise HTTPException(
-            status_code=500,
-            detail="La conversión del CV excedió el tiempo permitido.",
-        ) from exc
-    except subprocess.CalledProcessError as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error durante la conversión del DOCX: {exc.stderr}",
-        ) from exc
+        raise HTTPException(404, "No se encontró el archivo DOCX de esta versión.") from exc
+    except PDFConversionError as exc:
+        raise HTTPException(500, str(exc)) from exc
 
     return StreamingResponse(
         BytesIO(pdf_bytes),
         media_type="application/pdf",
         headers={
+            "Cache-Control": "no-store",
             "Content-Disposition": (
                 f'attachment; filename="cv_{version_id}.pdf"'
             )

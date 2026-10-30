@@ -32,15 +32,27 @@ def find_libreoffice() -> str:
 
 def cv_pdf_bytes(file_path: str) -> bytes:
     """Export the saved DOCX, using an isolated LibreOffice profile per request."""
+    if file_path.startswith('storage://'):
+        from .. import storage
+        return convert_docx(storage.read(file_path))
     source = (PROJECT_ROOT / file_path).resolve()
     if not source.is_relative_to((PROJECT_ROOT / "generated").resolve()):
         raise PDFConversionError("El archivo del CV debe estar en generated/.")
     if source.suffix.lower() != ".docx" or not source.is_file():
         raise FileNotFoundError("No se encuentra el DOCX de esta versión del CV.")
 
+    return convert_docx(source)
+
+
+def convert_docx(content: bytes | Path) -> bytes:
     executable = find_libreoffice()
     with TemporaryDirectory(prefix="jobbot-pdf-") as temporary:
         directory = Path(temporary)
+        if isinstance(content, Path):
+            source = content
+        else:
+            source = directory / 'cv.docx'
+            source.write_bytes(content)
         try:
             result = subprocess.run(
                 [

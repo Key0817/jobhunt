@@ -1,0 +1,42 @@
+services:
+  - type: web
+    name: jobhunt-api
+    runtime: docker
+    plan: starter
+    healthCheckPath: /healthz
+    autoDeployTrigger: off
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: DOCUMENT_STORAGE
+        value: supabase
+      - key: SUPABASE_STORAGE_BUCKET
+        value: jobhunt-private
+      - key: PROFILE_OBJECT_KEY
+        value: private/profile.yml
+      - key: CV_TEMPLATE_OBJECT_KEY
+        value: private/CV_Master.docx
+      - key: AI_PROVIDER
+        value: gemini
+      - key: DATABASE_URL
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: APP_OWNER_ID
+        sync: false
+      - key: FRONTEND_ORIGINS
+        sync: false
+      - key: GMAIL_OAUTH_REDIRECT_URI
+        sync: false
+      - key: MAIL_OAUTH_CLIENT_ID
+        sync: false
+      - key: MAIL_OAUTH_CLIENT_SECRET
+        sync: false
+      - key: GMAIL_TOKEN_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false

@@ -1,3 +1,4 @@
+import { API_URL, apiFetch } from './api';
 import { useCallback, useEffect, useState } from 'react';
 import {
   LayoutDashboard,
@@ -16,7 +17,7 @@ import SettingsPage from './SettingsPage';
 import OffersPage from './OffersPage';
 import DashboardColumn from './components/DashboardColumn';
 
-const API_URL = 'http://localhost:8000';
+
 
 type ViewType = 'dashboard' | 'offers' | 'detail' | 'my-cvs' | 'cv-detail' | 'settings';
 // Componente de la Barra Lateral modificado para recibir y cambiar la vista
@@ -112,7 +113,7 @@ function App() {
 
   const loadData = useCallback(async () => {
     try {
-      const statsResponse = await fetch(`${API_URL}/api/stats`);
+      const statsResponse = await apiFetch(`${API_URL}/api/stats`);
       if (!statsResponse.ok) throw new Error(`La API respondió ${statsResponse.status}`);
       setStats((await statsResponse.json()) as Stats);
       setError(null);
@@ -130,7 +131,7 @@ function App() {
 
   const moveJob = async (id: string, status: JobStatus) => {
     try {
-      const response = await fetch(`${API_URL}/api/jobs/${id}/status`, {
+      const response = await apiFetch(`${API_URL}/api/jobs/${id}/status`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status }),

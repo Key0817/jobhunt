@@ -15,6 +15,7 @@ from cryptography.fernet import Fernet, InvalidToken
 from google_auth_oauthlib.flow import Flow
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request as GoogleRequest
+from .deployment import production, frontend_origins
 import requests
 
 from . import repo
@@ -41,8 +42,9 @@ class OAuthConfig:
         cipher()
         redirect = os.environ.get("GMAIL_OAUTH_REDIRECT_URI", REDIRECT)
         parts = urlsplit(redirect)
-        if parts.hostname not in {"localhost", "127.0.0.1"} or parts.scheme not in {"http", "https"} or parts.path != "/api/settings/gmail/callback" or parts.query or parts.fragment or parts.username:
-            raise GmailOAuthError("El callback OAuth debe ser una URL local /api/settings/gmail/callback.")
+        valid_host = bool(parts.hostname) and parts.scheme == "https" if production() else parts.hostname in {"localhost", "127.0.0.1"} and parts.scheme in {"http", "https"}
+        if not valid_host or parts.path != "/api/settings/gmail/callback" or parts.query or parts.fragment or parts.username or parts.password:
+            raise GmailOAuthError("Configura un callback /api/settings/gmail/callback válido (HTTPS en producción).")
         return cls(os.environ["MAIL_OAUTH_CLIENT_ID"].strip(), os.environ["MAIL_OAUTH_CLIENT_SECRET"].strip(), redirect)
 
 
@@ -98,7 +100,7 @@ def _flow(config, state, verifier):
 
 def begin_connection(db, origin, folder):
     config = OAuthConfig.load()
-    if origin not in FRONTEND_ORIGINS:
+    if origin not in frontend_origins():
         raise GmailOAuthError("Origen de la aplicación no permitido.")
     if not folder.strip() or len(folder) > 150 or any(c in folder for c in "\r\n"):
         raise GmailOAuthError("Indica una etiqueta válida, por ejemplo JobAlerts.")

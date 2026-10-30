@@ -1,3 +1,4 @@
+import { API_URL, apiFetch } from './api';
 import { useCallback, useEffect, useState } from 'react';
 import {
   FileText,
@@ -6,7 +7,7 @@ import {
   AlertCircle,
 } from 'lucide-react';
 
-const API_URL = 'http://localhost:8000';
+
 
 export interface CVVersion {
   id: string;
@@ -57,7 +58,7 @@ export default function MyCVsPage({ onViewCV }: MyCVsPageProps) {
     setLoading(true);
 
     try {
-      const response = await fetch(`${API_URL}/api/cvs`);
+      const response = await apiFetch(`${API_URL}/api/cvs`);
 
       if (!response.ok) {
         throw new Error(

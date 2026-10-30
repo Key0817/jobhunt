@@ -1,3 +1,4 @@
+import { API_URL, apiFetch } from '../api';
 import { useCallback, useEffect, useState } from 'react';
 import { Mail, RefreshCw } from 'lucide-react';
 
@@ -18,7 +19,7 @@ export default function EmailImportPanel({ onOpenOffers, onRefresh }: {
   const load = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
     try {
-      const response = await fetch('http://localhost:8000/api/collection/email', { signal });
+      const response = await apiFetch(`${API_URL}/api/collection/email`, { signal });
       if (!response.ok) throw new Error('No se pudo consultar la última importación.');
       setSummary(await response.json());
       setError('');

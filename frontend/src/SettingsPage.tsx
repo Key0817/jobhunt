@@ -1,7 +1,8 @@
+import { API_URL, apiFetch, API_ORIGIN } from './api';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { CheckCircle2, ExternalLink, LoaderCircle, Mail, RefreshCw, Unplug } from 'lucide-react';
 
-const API_URL = 'http://localhost:8000';
+
 
 type GmailStatus = {
   configured: boolean;
@@ -25,7 +26,7 @@ export default function SettingsPage() {
 
   const loadStatus = useCallback(async () => {
     try {
-      const response = await fetch(`${API_URL}/api/settings/gmail`, { credentials: 'include' });
+      const response = await apiFetch(`${API_URL}/api/settings/gmail`, { credentials: 'include' });
       const data = await response.json();
       if (!response.ok) throw new Error(data.detail || 'No se pudo consultar la conexión Gmail.');
       setStatus(data);
@@ -40,7 +41,7 @@ export default function SettingsPage() {
   useEffect(() => {
     void loadStatus();
     const receive = (event: MessageEvent) => {
-      if (event.origin !== API_URL || event.source !== popup.current || event.data?.type !== 'jobhunt-gmail-oauth') return;
+      if (event.origin !== API_ORIGIN || event.source !== popup.current || event.data?.type !== 'jobhunt-gmail-oauth') return;
       setConnecting(false);
       popup.current = null;
       if (event.data.success) {
@@ -80,7 +81,7 @@ export default function SettingsPage() {
     }
     setConnecting(true);
     try {
-      const response = await fetch(`${API_URL}/api/settings/gmail/connect`, {
+      const response = await apiFetch(`${API_URL}/api/settings/gmail/connect`, {
         method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ folder }),
       });
@@ -100,7 +101,7 @@ export default function SettingsPage() {
     setError('');
     setMessage('');
     try {
-      const response = await fetch(`${API_URL}/api/settings/gmail/check`, {
+      const response = await apiFetch(`${API_URL}/api/settings/gmail/check`, {
         method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: '{}',
       });
       const data = await response.json();
@@ -119,7 +120,7 @@ export default function SettingsPage() {
     setError('');
     setMessage('');
     try {
-      const response = await fetch(`${API_URL}/api/settings/gmail/disconnect`, {
+      const response = await apiFetch(`${API_URL}/api/settings/gmail/disconnect`, {
         method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: '{}',
       });
       const data = await response.json();

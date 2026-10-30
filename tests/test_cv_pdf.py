@@ -53,9 +53,10 @@ class CVPDFTests(unittest.TestCase):
             def convert(command, **kwargs):
                 destination = Path(command[command.index("--outdir") + 1])
                 (destination / "saved.pdf").write_bytes(b"%PDF-test")
+                return type("Result", (), {"returncode": 0})()
 
             with patch("jobbot.api.repo.get_cv_version_detail", return_value={"file_path": str(source)}):
-                with patch("jobbot.api.subprocess.run", side_effect=convert) as run:
+                with patch("jobbot.cv.pdf.find_libreoffice", return_value="soffice"), patch("jobbot.cv.pdf.subprocess.run", side_effect=convert) as run:
                     response = download_cv_pdf("version", db=None)
                     self.assertEqual(run.call_args.args[0][-1], str(source))
                     self.assertEqual(response.media_type, "application/pdf")
@@ -72,7 +73,7 @@ class CVPDFTests(unittest.TestCase):
             source = Path(directory).resolve() / "saved.docx"
             source.write_bytes(b"docx")
             with patch("jobbot.api.repo.get_cv_version_detail", return_value={"file_path": str(source)}):
-                with patch("jobbot.api.subprocess.run", side_effect=FileNotFoundError("Falta soffice")):
+                with patch("jobbot.cv.pdf.find_libreoffice", return_value="soffice"), patch("jobbot.cv.pdf.subprocess.run", side_effect=FileNotFoundError("Falta soffice")):
                     with self.assertRaises(HTTPException) as caught:
                         download_cv_pdf("version", db=None)
                     self.assertEqual(caught.exception.status_code, 500)
