@@ -1,3 +1,4 @@
+import { getCached, setCached, subscribeCVChanges, cacheGeneration, useViewState } from './viewCache';
 import { API_URL, apiFetch } from './api';
 import { useCallback, useEffect, useState } from 'react';
 import {
@@ -49,13 +50,14 @@ const FILTER_OPTIONS = [
 ];
 
 export default function MyCVsPage({ onViewCV }: MyCVsPageProps) {
-  const [versions, setVersions] = useState<CVVersion[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [versions, setVersions] = useState<CVVersion[]>(() => getCached<CVVersion[]>('cvs') || []);
+  const [loading, setLoading] = useState(!getCached('cvs'));
   const [error, setError] = useState<string | null>(null);
-  const [filterStatus, setFilterStatus] = useState('all');
+  const [filterStatus, setFilterStatus] = useViewState('cvs:filter', 'all');
 
   const loadCVs = useCallback(async () => {
-    setLoading(true);
+    const generation = cacheGeneration();
+    setLoading(!getCached('cvs'));
 
     try {
       const response = await apiFetch(`${API_URL}/api/cvs`);
@@ -69,6 +71,8 @@ export default function MyCVsPage({ onViewCV }: MyCVsPageProps) {
       }
 
       const data: CVVersion[] = await response.json();
+      if (generation !== cacheGeneration()) return;
+      setCached('cvs', data);
       setVersions(data);
       setError(null);
     } catch (err) {
@@ -85,6 +89,10 @@ export default function MyCVsPage({ onViewCV }: MyCVsPageProps) {
   useEffect(() => {
     void loadCVs();
   }, [loadCVs]);
+
+  useEffect(() => subscribeCVChanges(change => {
+    setVersions(current => current.map(version => version.id === change.id ? { ...version, ...change } : version));
+  }), []);
 
   const filteredVersions = versions.filter(
     (cv) => filterStatus === 'all' || cv.status === filterStatus,

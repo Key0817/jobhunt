@@ -1,3 +1,4 @@
+import { publishCVChange } from './viewCache';
 import { API_URL, apiFetch } from './api';
 
 import { useEffect, useRef, useState } from "react";
@@ -67,6 +68,8 @@ export default function CVDetailPage({
 
     async function handleStatusChange(status: string) {
         if (!cv || status === cv.status) return;
+        const previous = { status: cv.status, approved: cv.approved };
+        setCv(current => current && { ...current, status, approved: status === 'approved' });
         const controller = new AbortController();
         statusRequest.current?.abort();
         statusRequest.current = controller;
@@ -87,10 +90,12 @@ export default function CVDetailPage({
             }
             if (!controller.signal.aborted) {
                 setCv(current => current && current.id === data.id ? { ...current, status: data.status, approved: data.approved } : current);
+                publishCVChange({ id: data.id, status: data.status, approved: data.approved });
                 setStatusSaved(true);
             }
         } catch (err) {
             if (!controller.signal.aborted) {
+                setCv(current => current && current.id === versionId ? { ...current, ...previous } : current);
                 setStatusError(err instanceof Error ? err.message : "No se pudo guardar el estado.");
             }
         } finally {

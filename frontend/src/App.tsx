@@ -1,5 +1,7 @@
+import { cacheGeneration } from './viewCache';
+import { beginJobChange, isJobPending } from './jobChanges';
 import { API_URL, apiFetch } from './api';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   LayoutDashboard,
   Briefcase,
@@ -98,7 +100,7 @@ const WeeklyChart = ({ data }: { data: Stats['weekly_applications'] }) => {
 
 // Componente Principal
 function App() {
-  const [boardRevision, setBoardRevision] = useState(0);
+  const statsRequest = useRef(0);
   const [stats, setStats] = useState<Stats | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -109,15 +111,21 @@ function App() {
   const [offersSource, setOffersSource] = useState('all');
   const [selectedCVId, setSelectedCVId] = useState<string | null>(null);
   const [cvBackView, setCVBackView] = useState<'detail' | 'my-cvs'>('my-cvs');
+  const [jobBackView, setJobBackView] = useState<'dashboard' | 'offers'>('offers');
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
+    const sequence = ++statsRequest.current;
+    const generation = cacheGeneration();
     try {
       const statsResponse = await apiFetch(`${API_URL}/api/stats`);
       if (!statsResponse.ok) throw new Error(`La API respondió ${statsResponse.status}`);
-      setStats((await statsResponse.json()) as Stats);
+      const result = (await statsResponse.json()) as Stats;
+      if (sequence !== statsRequest.current || generation !== cacheGeneration()) return;
+      setStats(result);
       setError(null);
     } catch (e) {
+      if (sequence !== statsRequest.current || generation !== cacheGeneration()) return;
       console.error('Error obteniendo datos de la API:', e);
       setError('No se pudo cargar la información. ¿Está corriendo la API en ' + API_URL + '?');
     } finally {
@@ -130,6 +138,12 @@ function App() {
   }, [loadData]);
 
   const moveJob = async (id: string, status: JobStatus) => {
+    if (isJobPending(id)) return false;
+    const generation = cacheGeneration();
+    const change = beginJobChange(id, status);
+    const updateCounts = (from: JobStatus, to: JobStatus) => setStats(current => current ? { ...current,
+      by_status: { ...current.by_status, [from]: Math.max(0, current.by_status[from] - 1), [to]: current.by_status[to] + 1 } } : current);
+    if (change.before && change.before.status !== status) updateCounts(change.before.status, status);
     try {
       const response = await apiFetch(`${API_URL}/api/jobs/${id}/status`, {
         method: 'PATCH',
@@ -139,10 +153,14 @@ function App() {
       if (!response.ok) {
         throw new Error(`La API respondió ${response.status}`);
       }
-      await loadData();
-      setBoardRevision(value => value + 1);
+      if (generation !== cacheGeneration()) return false;
+      change.finish(true);
+      void loadData();
       return true;
     } catch (e) {
+      if (generation !== cacheGeneration()) return false;
+      change.finish(false);
+      if (change.before && change.before.status !== status) updateCounts(status, change.before.status);
       console.error('Error cambiando el estado:', e);
       setError('No se pudo cambiar el estado de la oferta.');
       return false;
@@ -150,6 +168,7 @@ function App() {
   };
 
   const handleViewDetail = (id: string) => {
+    setJobBackView(currentView === 'dashboard' ? 'dashboard' : 'offers');
     setSelectedJobId(id);
     setCurrentView('detail');
   };
@@ -161,7 +180,7 @@ function App() {
       return (
         <JobDetailPage
           jobId={selectedJobId}
-          onBack={() => setCurrentView('offers')}
+          onBack={() => setCurrentView(jobBackView)}
           onMove={moveJob}
           onViewCV={(versionId) => {
             setSelectedCVId(versionId);
@@ -215,7 +234,7 @@ function App() {
 
         {/* Tablero Kanban */}
         <div className="flex gap-4 overflow-x-auto pb-4">
-          {STATUSES.map(status => <DashboardColumn key={status} status={status} refreshToken={boardRevision} onMove={moveJob} onViewDetail={handleViewDetail} />)}
+          {STATUSES.map(status => <DashboardColumn key={status} status={status} onMove={moveJob} onViewDetail={handleViewDetail} />)}
         </div>
       </>
     );

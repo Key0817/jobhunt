@@ -1,3 +1,4 @@
+import { useJobPending } from '../jobChanges';
 import { ExternalLink, Mail } from 'lucide-react';
 import { STATUSES, STATUS_LABELS } from '../types';
 import type { Job, JobStatus } from '../types';
@@ -5,6 +6,7 @@ import type { Job, JobStatus } from '../types';
 export default function JobCard({ job, onMove, onViewDetail }: {
   job: Job; onMove: (id: string, status: JobStatus) => void; onViewDetail: (id: string) => void;
 }) {
+  const pending = useJobPending(job.id);
   const color = job.score >= 70 ? 'bg-emerald-500/15 text-emerald-300' : job.score >= 40 ? 'bg-amber-500/15 text-amber-300' : 'bg-gray-500/15 text-gray-400';
   const emailOrigin = job.origins?.find(origin => origin.source.endsWith('_email'));
   return (
@@ -27,7 +29,7 @@ export default function JobCard({ job, onMove, onViewDetail }: {
           <button type="button" onClick={() => onViewDetail(job.id)} className="font-medium text-blue-300 hover:underline">Ver detalles</button>
           {/^https?:\/\//i.test(job.url) && <a href={job.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-gray-300 hover:text-white">Abrir oferta<ExternalLink size={12} /></a>}
         </div>
-        <select value={job.status} onChange={event => onMove(job.id, event.target.value as JobStatus)} className="status-select w-full" aria-label={`Estado de ${job.title}`}>
+        <select disabled={pending} aria-busy={pending} value={job.status} onChange={event => onMove(job.id, event.target.value as JobStatus)} className="status-select w-full" aria-label={`Estado de ${job.title}`}>
           {STATUSES.map(status => <option key={status} value={status}>{STATUS_LABELS[status]}</option>)}
         </select>
       </div>

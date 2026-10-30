@@ -1,3 +1,5 @@
+import { rememberJobs, useJobPending } from './jobChanges';
+import { getCached, setCached, subscribeCVChanges } from './viewCache';
 import { API_URL, apiFetch } from './api';
 
 import { useCallback, useEffect, useState } from 'react';
@@ -34,16 +36,17 @@ interface CVGenerationResult {
 }
 
 export default function JobDetailPage({jobId,onBack,onMove,onViewCV,}: JobDetailPageProps) {
+  const moving = useJobPending(jobId);
   const [job, setJob] = useState<Job | null>(null);
   const [loading, setLoading] = useState(true);
   const [generatingCV, setGeneratingCV] = useState(false);
   const [loadingVersions, setLoadingVersions] = useState(false);
-  const [versions, setVersions] = useState<CVVersion[]>([]);
+  const [versions, setVersions] = useState<CVVersion[]>(() => getCached<CVVersion[]>('job-cvs:' + jobId) || []);
   const [cvMessage, setCvMessage] = useState('');
   const [cvError, setCvError] = useState('');
 
   const fetchVersions = useCallback(async () => {
-    setLoadingVersions(true);
+    setLoadingVersions(!getCached('job-cvs:' + jobId));
 
     try {
       const response = await apiFetch(
@@ -55,6 +58,7 @@ export default function JobDetailPage({jobId,onBack,onMove,onViewCV,}: JobDetail
       }
 
       const data = (await response.json()) as CVVersion[];
+      setCached('job-cvs:' + jobId, data);
       setVersions(data);
     } catch (error) {
       console.error('Error cargando versiones de CV:', error);
@@ -80,6 +84,7 @@ export default function JobDetailPage({jobId,onBack,onMove,onViewCV,}: JobDetail
         const data = (await response.json()) as Job;
 
         if (!cancelled) {
+          rememberJobs([data]);
           setJob(data);
         }
       } catch (error) {
@@ -95,7 +100,7 @@ export default function JobDetailPage({jobId,onBack,onMove,onViewCV,}: JobDetail
       }
     };
 
-    setVersions([]);
+    setVersions(getCached<CVVersion[]>('job-cvs:' + jobId) || []);
     setCvMessage('');
     setCvError('');
     void fetchDetail();
@@ -106,14 +111,15 @@ export default function JobDetailPage({jobId,onBack,onMove,onViewCV,}: JobDetail
     };
   }, [jobId, fetchVersions]);
 
-  const handleMove = async (status: JobStatus) => {
-    if (!job) return;
+  useEffect(() => subscribeCVChanges(change => {
+    setVersions(current => current.map(version => version.id === change.id ? { ...version, ...change } : version));
+  }), []);
 
-    if (await onMove(job.id, status)) {
-      setJob((current) =>
-        current ? { ...current, status } : current,
-      );
-    }
+  const handleMove = async (status: JobStatus) => {
+    if (!job || moving) return;
+    const previous = job.status;
+    setJob(current => current && { ...current, status });
+    if (!await onMove(job.id, status)) setJob(current => current && { ...current, status: previous });
   };
 
   const handleGenerateCV = async () => {
@@ -204,7 +210,7 @@ export default function JobDetailPage({jobId,onBack,onMove,onViewCV,}: JobDetail
               Puntuación: {job.score}
             </span>
 
-            <select
+            <select disabled={moving}
               value={job.status}
               onChange={(event) =>
                 void handleMove(event.target.value as JobStatus)
